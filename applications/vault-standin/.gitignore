@@ -1,0 +1,9 @@
+# Stage 2 secrets — NEVER commit
+private.pem
+*.jwt
+token.txt
+broker/build/
+broker/*.zip
+
+# Local Python venv for minting tools
+.venv/

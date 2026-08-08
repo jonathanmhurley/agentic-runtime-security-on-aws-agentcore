@@ -1,0 +1,5 @@
+# Pin the AgentCore SDK — OBO API surface + Agent Registry are moving. See docs/DESIGN.md section 7.
+bedrock-agentcore==<PIN_ME>
+strands-agents==<PIN_ME>
+hvac==2.3.0
+boto3>=1.34.0

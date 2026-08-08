@@ -1,0 +1,58 @@
+# Terraform
+.terraform/
+.terraform-build/
+
+# GSD planning scaffolding — internal dev docs, excluded from the public samples repo
+.planning/
+
+# Vault Enterprise license — supplied per-deploy (VAULT_ENTERPRISE_LICENSE_PATH),
+# never committed. Real .hclic files are commercial secrets.
+*.hclic
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Debug logs
+logs/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Workshop Studio
+workshop/public/
+workshop/assets/terraform/
+workshop/tmp/
+
+# Node
+node_modules/
+
+# reveal-md exports
+*.pdf
+slides-site/
+
+# Instruqt distribution — config.yml is a GENERATED artifact (region literals); never commit
+instruqt/track/config.yml

@@ -1,0 +1,3 @@
+# Pin the AgentCore SDK — OBO API surface + Agent Registry are moving. See docs/DESIGN.md §7.
+bedrock-agentcore==<PIN_ME>
+strands-agents==<PIN_ME>

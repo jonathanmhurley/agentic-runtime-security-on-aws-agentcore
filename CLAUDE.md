@@ -1,0 +1,35 @@
+# Project Instructions — agentic-runtime-security-on-aws-agentcore
+
+This is the **AgentCore edition** — a new-repo pivot of the EKS/IVIA workshop. Structure mirrors the original; deviate only where AgentCore forces it.
+
+## Scope constraints (final, do not relitigate)
+
+- **No EKS.** Agents run on Amazon Bedrock AgentCore Runtime (managed, serverless). No cluster, node group, ServiceAccounts, NetworkPolicy, Karpenter, or ArgoCD.
+- **No IVIA / IBM Verify Identity Access, no OpenLDAP.** Identity is an external OIDC IdP (Cognito default) + AgentCore Identity as token issuer. No IBM licensing artifacts anywhere.
+- **Vault = self-hosted Vault Enterprise on AWS** (NOT HCP Vault Dedicated — hard constraint: run on AWS, not HashiCorp Cloud). Enterprise license provided by Oscar/content team, injected at deploy from a content-team-owned secret. Single persistent Vault server (EC2/Fargate), NOT an HA Raft cluster.
+- **Agent Registry (beta) stays in the core labs** — it is the reason the Enterprise license matters. Pin the Vault Enterprise version; isolate registry config in its own module.
+- **OBO = Vault as the OBO/JWT resource server**, `JWT_AUTHORIZATION_GRANT` (RFC 7523). AgentCore performs the exchange natively (one credential-provider config + two runtime calls). Do NOT hand-roll token brokering.
+- **Bedrock LLM = Amazon Nova Pro** via CRIS profile `us.amazon.nova-pro-v1:0` (NOT bare `amazon.nova-pro-v1:0`). **Embedding = Amazon Nova 2 Multimodal Embeddings** (`amazon.nova-2-multimodal-embeddings-v1:0`, us-east-1 only). KB components in us-east-1 via `provider.aws.kb`; everything else in `var.region`.
+- **Canonical region contract**: no `us-west-2`/`us-east-1` string literals outside the tfvars/deploy config. All modules interpolate `var.region` / `var.kb_region`.
+- **AWS CLI: always `--profile agentic`.**
+
+## Version pinning (first-class requirement)
+
+- Pin Vault Enterprise version (exact `+ent` build shipping the Agent Registry used by the labs). No `latest`/floating tags.
+- Pin `bedrock-agentcore` SDK version in every `applications/*/requirements.txt`.
+- Maintain a single **"Tested against"** block (Vault Enterprise version · AgentCore SDK · region · date) in `docs/DESIGN.md`.
+- Label Vault capabilities GA vs beta: GA = JWT auth, dynamic secrets, audit; beta = Agent Registry.
+
+## Code conventions
+
+- **Every script MUST be idempotent and safe to re-run end-to-end — no exceptions.** Applies especially to `deploy-workshop.sh`.
+- Atomic commits per logical change; explicit `git add <path>` (never `git add .` / `-A`).
+- Terraform fmt clean; every module carries a README.md as authoritative module documentation.
+
+## Don't
+
+- Don't reintroduce EKS, IVIA, OpenLDAP, Karpenter, or ArgoCD references.
+- Don't add HCP Vault Dedicated — Vault runs self-hosted on AWS.
+- Don't ask the user to re-confirm the constraints above. They are settled.
+- **Don't speculate.** Never add config keys or API values not confirmed in official AWS/HashiCorp docs or verified live. Research first.
+- **Never modify files the user didn't ask to change.** Only commit files related to the current task.

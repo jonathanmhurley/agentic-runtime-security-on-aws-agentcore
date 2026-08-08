@@ -1,0 +1,17 @@
+{
+  "targets": {
+    "default": {
+      "resources": {
+        "runtimes": {
+          "stage0hello": {
+            "runtimeId": "stage0hello_stage0hello-PglC2wCzrZ",
+            "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:036325003285:runtime/stage0hello_stage0hello-PglC2wCzrZ",
+            "roleArn": "arn:aws:iam::036325003285:role/AgentCore-stage0hello-def-ApplicationAgentStage0hel-sV2ZNvKgNJNS"
+          }
+        },
+        "stackName": "AgentCore-stage0hello-default",
+        "deployHash": "b8748da388c6cbee"
+      }
+    }
+  }
+}
