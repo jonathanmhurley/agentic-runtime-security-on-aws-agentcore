@@ -107,17 +107,40 @@ answers are unmistakably KB-grounded).
 
 ---
 
-## 4. The OBO / JWT flow (grounded)
+## 4. The OBO / JWT flow (documented — NOT yet proven)
 
-Confirmed against the [AWS OBO docs](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/on-behalf-of-token-exchange.html) and the [aws-samples OBO reference](https://github.com/aws-samples/sample-bedrock-agentcore-identity-obo-token-exchange) (`04_agent_obo_example.py`, Strands, tested us-east-1, MIT-0).
+> **Status:** the mechanics below are **confirmed against the AWS OBO docs and the
+> [aws-samples OBO reference](https://github.com/aws-samples/sample-bedrock-agentcore-identity-obo-token-exchange)**
+> (`04_agent_obo_example.py`, Strands, tested us-east-1, MIT-0), but they have **NOT been
+> executed in this project**. Stages 0-2 proved the *downstream* half (JWT -> validate via
+> JWKS -> allowlist -> vend scoped creds) using the credential-broker stand-in. The native
+> AgentCore OBO exchange itself is unproven. The single biggest unknown — the exact
+> AgentCore Identity issuer / JWKS URL / claim shape — must be confirmed first (see
+> `VAULT_HANDOFF.md` §2). OBO applies from **UC2 onward**; **UC1 has no user context** and
+> uses the agent's own workload identity, so none of this is on the UC1 path.
 
-AgentCore performs the OBO exchange natively — the lab does **not** hand-roll token brokering. The whole flow reduces to **one setup config + two runtime calls**.
+### The two distinct tokens (do not conflate)
 
-**Setup (once, in bootstrap):**
+There are **two** tokens, issued by two different issuers, validated against two different
+JWKS endpoints. Conflating them is the most common way to mis-wire Vault:
+
+1. **AgentCore user-context JWT** — issued by **AgentCore Identity**, validated against
+   **AgentCore's** JWKS. This is what `vault_config`'s OAuth resource server profile is
+   configured for (`agentcore_issuer` + `agentcore_jwks_url`). It carries the user identity
+   into Vault.
+2. **OBO downstream access token** — issued by the **external IdP's** token endpoint via
+   the AgentCore OAuth *credential provider*, validated against the **IdP's** JWKS. This is
+   what an agent presents to a *third-party* OAuth-protected resource, NOT to Vault.
+
+For the workshop's Vault path, **Vault validates token #1** (the AgentCore user-context
+JWT). The OBO downstream token (#2) is only relevant if/when the agent calls an external
+OAuth API on the user's behalf. Decide per use case which token a given downstream needs.
+
+### Setup (once, in bootstrap — the `agentcore_obo` module)
 
 ```bash
 aws bedrock-agentcore-control create-oauth2-credential-provider \
-  --profile agentic \
+  --profile agenticvault \
   --cli-input-json '{
     "name": "workshop-obo-vault",
     "credentialProviderVendor": "CustomOauth2",
@@ -131,27 +154,46 @@ aws bedrock-agentcore-control create-oauth2-credential-provider \
       }
     }
   }'
-
 ```
 
-**Runtime (in the agent, two calls):**
+### Runtime (in the agent — two calls, chained)
+
+The inbound `<user-jwt>` is the **OIDC bearer token from the runtime's
+`customJWTAuthorizer`** (Cognito/Okta/etc.) — i.e. the token the end user's login
+produced, forwarded by AgentCore Runtime. Call 1's output is call 2's input:
 
 ```bash
-# 1. exchange inbound user token → workload access token
-aws bedrock-agentcore get-workload-access-token-for-jwt --profile agentic \
-  --workload-name workshop-workload --user-token "<inbound-jwt>"
+# 1. Exchange the inbound user JWT for a workload access token.
+#    Capture the returned workloadAccessToken.
+WAT=$(aws bedrock-agentcore get-workload-access-token-for-jwt --profile agenticvault \
+  --workload-name workshop-workload --user-token "<user-jwt>" \
+  --query workloadAccessToken --output text)
 
-# 2. get the OBO-scoped downstream token
-aws bedrock-agentcore get-resource-oauth2-token --profile agentic \
+# 2. Use THAT workload access token to get the OBO-scoped downstream token.
+aws bedrock-agentcore get-resource-oauth2-token --profile agenticvault \
   --resource-credential-provider-name workshop-obo-vault \
   --oauth2-flow ON_BEHALF_OF_TOKEN_EXCHANGE --scopes "<scope>" \
-  --workload-identity-token "<workload-access-token>"
-
+  --workload-identity-token "$WAT"
 ```
 
-Vault then validates the presented JWT via the AgentCore JWKS endpoint (JWT auth method), checks the Agent Registry, reads the `authorization_details` claim, and vends short-lived dynamic secrets tied to the JWT lease.
+### Grant-type choice
 
-Grant-type choice: `JWT_AUTHORIZATION_GRANT` (RFC 7523) — no actor token to configure, simplest for the lab. `TOKEN_EXCHANGE` (RFC 8693) with an M2M actor token is the alternative, documented as an advanced callout only.
+- **`JWT_AUTHORIZATION_GRANT`** (RFC 7523) — no actor token to configure; simplest for the
+  lab. Recommended.
+- **`TOKEN_EXCHANGE`** (RFC 8693) — requires an `actorTokenContent` of `M2M`,
+  `AWS_IAM_ID_TOKEN_JWT`, or `NONE` (M2M does a client-credentials grant first and sends
+  the result as the actor token; AWS_IAM_ID_TOKEN_JWT needs
+  `iam:EnableOutboundWebIdentityFederation`). Advanced callout only.
+
+### How this reaches Vault
+
+Once the agent holds the AgentCore user-context JWT (token #1), it presents it to Vault
+**directly as the `X-Vault-Token`** against the OAuth resource-server profile — no Vault
+login round-trip. Vault validates against the AgentCore JWKS, checks the Agent Registry,
+reads the `authorization_details` claim, and vends short-lived dynamic secrets tied to the
+JWT lease. The `agentcore_obo` module (credential provider) and the `agentcore_identity`
+module (issuer + JWKS) are the two pieces that must be stood up and confirmed before this
+path works.
 
 ---
 
@@ -183,7 +225,7 @@ Section skeleton (reuse the `workshop/content/NN-section/` numbering):
 - Tier 2: Vault Enterprise server + Vault config (JWT auth, secrets engines, Agent Registry, policies).
 - Tier 3: AgentCore setup (Runtime agents, Identity, OBO credential provider) + OIDC IdP wiring.
 - **Idempotency:** every script idempotent and safe to re-run (inherited non-negotiable from the current repo's CLAUDE.md).
-- **AWS CLI:** all calls use `--profile agentic`.
+- **AWS CLI:** all calls use `--profile agenticvault` (the account Stages 0-2 were proven in).
 
 ---
 
