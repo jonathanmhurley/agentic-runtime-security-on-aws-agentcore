@@ -42,25 +42,28 @@ Three progressively-layered Strands agents on **AgentCore Runtime**, brokered th
 
 ---
 
-## Quick start (admin)
+## Quick start
+
+**To recreate the proven phases (Stages 0-2) right now**, follow **`docs/RUNBOOK.md`** —
+it has the exact, tested commands (AgentCore Node CLI, real paths, the gotchas and their
+fixes). Start there.
+
+**To pick up Stage 3 (real Vault Enterprise)**, see **`docs/VAULT_HANDOFF.md`** — what
+Vault must provide and how the agent connects to it.
+
+> The tiered `infrastructure/scripts/deploy-workshop.sh --tier N` flow below describes the
+> *eventual packaged workshop* and is **not built yet** — those scripts are skeletons. The
+> working, proven path today is the staged build in `docs/RUNBOOK.md`.
 
 ```bash
-# 1. Preview the workshop content locally
-bash workshop/scripts/preview.sh
-
-# 2. Verify CLI tools + AWS account + Bedrock AgentCore access
-bash infrastructure/scripts/check-prerequisites.sh
-
-# 3. Deploy the full stack (tiered) and validate
-bash infrastructure/scripts/deploy-workshop.sh --tier 1
-bash infrastructure/scripts/deploy-workshop.sh --tier 2
-bash infrastructure/scripts/deploy-workshop.sh --tier 3
-
-# 4. Tear down everything
-bash infrastructure/scripts/teardown.sh
+# EVENTUAL packaged flow (skeleton — not yet functional):
+bash infrastructure/scripts/deploy-workshop.sh --tier 1   # foundation
+bash infrastructure/scripts/deploy-workshop.sh --tier 2   # Vault Enterprise + config
+bash infrastructure/scripts/deploy-workshop.sh --tier 3   # AgentCore + OIDC IdP
 ```
 
-All AWS CLI calls use `--profile agentic`. All scripts are idempotent and safe to re-run.
+Proven work used the AgentCore Node CLI (`agentcore create/deploy/invoke`) with
+`--profile agenticvault`, per stage. See `docs/RUNBOOK.md`.
 
 ---
 

@@ -1,5 +1,12 @@
 # Staged build & demonstration plan
 
+> **For the exact, tested commands to recreate each stage, follow `RUNBOOK.md`.**
+> This file is the *plan and rationale*; RUNBOOK.md is the *runbook*. Where earlier
+> drafts of this file showed `agentcore configure/launch` or `applications/stage0-hello/`,
+> those were superseded — the proven flow uses the AgentCore **Node** CLI
+> (`agentcore create/deploy/invoke`), `applications/stage0hello/`, and `--profile agenticvault`.
+
+
 Build the workshop in stages. After each stage you can **manually deploy what we've
 built to your AWS account and show it does what we claim** — before real Vault
 exists. Where a stage needs something Vault will later provide, we use an
@@ -7,8 +14,8 @@ AWS-native **stand-in** with the same interface, so the agent code does not chan
 when real Vault arrives.
 
 **Operating notes for every stage**
-- Confirm the active identity first: `aws sts get-caller-identity --profile agentic`
-- Every AWS CLI call uses `--profile agentic`.
+- Confirm the active identity first: `aws sts get-caller-identity --profile agenticvault`
+- Every AWS CLI call uses `--profile agenticvault` (the account this was proven in).
 - Target account: **<ACCOUNT_ID>** (personal default) unless stated otherwise.
 - You run the commands in your terminal; the agent hands them over (git/aws/terraform are not run in-sandbox for this project).
 
@@ -34,26 +41,24 @@ stand-in keeps that shape, so `agent.py` is stable from Stage 1 through Stage 3.
 **Goal:** prove AgentCore Runtime works in your account: deploy a trivial Strands
 agent, invoke it, confirm it has a workload identity.
 
-**Build (in repo):** `applications/stage0-hello/` — a minimal Strands agent
-(`agent.py`) + `requirements.txt` + starter-toolkit entrypoint. Already scaffolded.
+**Build (in repo):** `applications/stage0hello/` — an AgentCore **Node CLI** project
+(Strands, CodeZip, Bedrock), created with `agentcore create --name stage0hello
+--framework Strands --protocol HTTP --model-provider Bedrock --memory none`. Model set to
+Nova Pro via CRIS in `app/stage0hello/model/load.py`.
 
-**Deploy & invoke (you run):**
+**Deploy & invoke (you run) — see RUNBOOK.md Stage 0 for the full version:**
 ```bash
-aws sts get-caller-identity --profile agentic          # confirm <ACCOUNT_ID>
+export AWS_PROFILE=agenticvault
+aws sts get-caller-identity --profile "$AWS_PROFILE"    # confirm the RIGHT account
+aws configure set region us-east-1 --profile "$AWS_PROFILE"
 
-cd applications/stage0-hello
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Configure + launch with the AgentCore starter toolkit (builds image via CodeBuild,
-# creates the ECR repo + execution role, creates the runtime).
-agentcore configure --entrypoint agent.py --name stage0hello --region us-east-1
-agentcore launch                                        # uses --profile via AWS_PROFILE
-# ^ if the toolkit doesn't read --profile, prefix: AWS_PROFILE=agentic agentcore launch
-
-# Invoke it
-agentcore invoke '{"prompt": "say hello and name your workload identity"}'
+cd applications/stage0hello
+agentcore validate
+agentcore deploy                                        # CDK: bootstrap -> synth -> deploy
+agentcore status                                        # Runtime: READY + workload identity ARN
+agentcore invoke "say hello and name your model"
 ```
+NOT `agentcore configure/launch` (that is the Python starter toolkit — a different tool).
 
 **Demonstrate:**
 - `agentcore status` shows the runtime `READY` and prints the **workload identity ARN**.
@@ -68,7 +73,7 @@ agentcore invoke '{"prompt": "say hello and name your workload identity"}'
 **Goal:** OBJ-1 (identity) + the KB read path, with the runtime **execution role** as
 the scoped credential (the first Vault stand-in).
 
-**Build:** promote `stage0-hello` into `uc1-agent` (already implemented:
+**Build:** the `stage0hello` project's `retrieve_from_kb` tool (already implemented:
 `query_knowledge_base` tool). Grant the execution role `bedrock:Retrieve` on the KB.
 
 **Prereq decision:** use an existing Bedrock KB or stand up a fresh one (see open
@@ -76,13 +81,13 @@ question in DESIGN §8). Set `BEDROCK_KB_ID` as a runtime env var.
 
 **Deploy & invoke (you run):**
 ```bash
-# Add KB read to the runtime execution role (role ARN from `agentcore status`)
-aws iam put-role-policy --profile agentic \
+# Add KB read to the runtime execution role (role ARN from get-agent-runtime; see RUNBOOK.md)
+aws iam put-role-policy --profile agenticvault \
   --role-name <agentcore-exec-role> \
   --policy-name bedrock-kb-read \
   --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["bedrock:Retrieve"],"Resource":"arn:aws:bedrock:us-east-1:<ACCOUNT_ID>:knowledge-base/<KB_ID>"}]}'
 
-agentcore invoke '{"prompt": "what does the knowledge base say about <topic>?"}'
+agentcore invoke "What is RapidLane's same-day SLA?"
 ```
 
 **Demonstrate:** the agent answers from the KB; remove the policy and the same call
@@ -125,8 +130,9 @@ Built under `applications/vault-standin/`:
   Stage 2 default `sub=uc1-agent`; UC2 will mint a user `sub` with no code change)
 - `broker/handler.py` — Lambda: validate JWT via JWKS -> allowlist (`ALLOWED_SUBS`) ->
   `sts:AssumeRole` into a scoped role -> return short-lived creds; one audit line per decision
-- `broker/deploy.sh` — vended role (bedrock:Retrieve on KB QLKOTZM2GC), Lambda role,
-  packaged Lambda, IAM-auth Function URL
+- `broker/deploy.sh` — vended role (bedrock:Retrieve on the KB), Lambda role,
+  Linux-x86_64-packaged Lambda, and `lambda:InvokeFunction` grant on the agent exec role
+  (agent calls the broker via direct `lambda.invoke`, NOT a Function URL — see PROVEN notes)
 - `broker_client.py` — agent-side `get_scoped_credentials(jwt)`; shape-compatible with the
   Stage 3 Vault client (swap endpoint, not agent logic)
 
