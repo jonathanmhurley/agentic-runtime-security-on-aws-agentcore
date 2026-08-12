@@ -84,28 +84,14 @@ else
     --role "$LAMBDA_ROLE_ARN" --zip-file "fileb://$ZIP" --environment "$ENVVARS" >/dev/null
 fi
 
-# 5. Function URL with AuthType NONE. AUTHORIZATION IS THE JWT, not AWS SigV4.
-# This is deliberate and more faithful to the Vault model: Vault authorizes a
-# request on the presented JWT (validated via JWKS) + the allowlist, NOT on AWS
-# IAM. An AWS_IAM Function URL added an orthogonal transport-auth layer that the
-# AgentCore Runtime's outbound signer did not satisfy (403 before the function
-# ran), which is incidental to what this stand-in demonstrates. With NONE, the
-# broker's own JWKS-validation + allowlist ARE the access control — exactly the
-# control we are proving. The vended creds remain tightly scoped (bedrock:Retrieve
-# on one KB), so an unauthenticated caller with no valid JWT gets a 401/403 from
-# the broker logic itself and never receives credentials.
-aws lambda create-function-url-config --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
-  --auth-type NONE >/dev/null 2>&1 || \
-  aws lambda update-function-url-config --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
-    --auth-type NONE >/dev/null
-# Public invoke permission (AuthType NONE still needs a resource permission allowing
-# lambda:InvokeFunctionUrl with FunctionUrlAuthType=NONE).
-aws lambda remove-permission --function-name "$FN" --statement-id public-invoke-url \
-  --profile "$PROFILE" --region "$REGION" >/dev/null 2>&1 || true
-aws lambda add-permission --function-name "$FN" --statement-id public-invoke-url \
-  --action lambda:InvokeFunctionUrl --principal "*" \
-  --function-url-auth-type NONE --profile "$PROFILE" --region "$REGION" >/dev/null
-URL="$(aws lambda get-function-url-config --function-name "$FN" --profile "$PROFILE" --region "$REGION" --query FunctionUrl --output text)"
+# 5. NO Function URL — the agent calls via direct lambda.invoke (IAM-auth SDK call).
+# A Function URL was removed because:
+#   - The AgentCore Runtime's outbound call could not satisfy the URL's auth layer
+#     (403 before the function ran, under both AWS_IAM and NONE auth types).
+#   - AuthType NONE made the Lambda world-accessible and triggered Palisade/Epoxy
+#     auto-mitigation (security scanner deleted the public permission).
+# Direct lambda.invoke is private, IAM-authenticated, and works natively from the
+# runtime. No public endpoint exists on this function.
 
 # 6. Grant the AGENT execution role lambda:InvokeFunction on the broker. This is
 # the transport auth for the DIRECT lambda.invoke path the agent uses (the Function
@@ -122,7 +108,6 @@ cat <<EOF
 ============================================================
   Stage 2 broker deployed.
     Function:      $FN
-    Broker URL:    $URL
     Vended role:   $VENDED_ROLE_ARN  (bedrock:Retrieve on KB $KB_ID)
     Allowlist:     $ALLOWED_SUBS
     Trusts JWKS:   $JWKS_URL
