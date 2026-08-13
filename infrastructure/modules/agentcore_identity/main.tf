@@ -1,4 +1,10 @@
 ################################################################################
+# STUB — not functional. See infrastructure/README.md.
+# These null_resource placeholders document the intent; actual deployment uses
+# the AgentCore CLI (agentcore create/deploy). Do NOT terraform apply.
+################################################################################
+
+################################################################################
 # agentcore_identity Module (NEW — replaces IVIA as issuer + Vault k8s auth)
 #
 # Provisions AgentCore Identity: the workload identity for each agent (ARN) and

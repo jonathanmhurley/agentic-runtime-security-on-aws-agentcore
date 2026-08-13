@@ -1,3 +1,5 @@
+> ⚠️ **STUB** — this module is a design reference, not functional Terraform. See `infrastructure/README.md`.
+
 # Module: ecr
 
 Container image repository for the AgentCore Runtime agent image(s).

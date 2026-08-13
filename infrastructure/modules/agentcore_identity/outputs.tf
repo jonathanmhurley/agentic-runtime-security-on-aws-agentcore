@@ -1,3 +1,9 @@
+################################################################################
+# STUB — not functional. See infrastructure/README.md.
+# These null_resource placeholders document the intent; actual deployment uses
+# the AgentCore CLI (agentcore create/deploy). Do NOT terraform apply.
+################################################################################
+
 # Emitted for vault_config to consume (issuer + JWKS + audience).
 output "issuer" {
   value       = var.agentcore_issuer_override

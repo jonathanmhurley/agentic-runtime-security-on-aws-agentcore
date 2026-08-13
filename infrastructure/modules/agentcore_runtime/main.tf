@@ -1,4 +1,10 @@
 ################################################################################
+# STUB — not functional. See infrastructure/README.md.
+# These null_resource placeholders document the intent; actual deployment uses
+# the AgentCore CLI (agentcore create/deploy). Do NOT terraform apply.
+################################################################################
+
+################################################################################
 # agentcore_runtime Module (NEW — replaces EKS agent pods)
 #
 # Deploys the Strands agents onto Amazon Bedrock AgentCore Runtime (managed,

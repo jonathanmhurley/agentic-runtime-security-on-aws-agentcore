@@ -1,3 +1,5 @@
+> ⚠️ **STUB** — this module is a design reference, not functional Terraform. See `infrastructure/README.md`.
+
 # Module: agentcore_runtime
 
 **NEW.** Deploys the Strands agents onto Amazon Bedrock AgentCore Runtime

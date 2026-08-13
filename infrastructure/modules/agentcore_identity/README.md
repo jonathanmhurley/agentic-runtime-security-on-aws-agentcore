@@ -1,3 +1,5 @@
+> ⚠️ **STUB** — this module is a design reference, not functional Terraform. See `infrastructure/README.md`.
+
 # Module: agentcore_identity
 
 **NEW.** AgentCore Identity: per-agent workload identity (ARN), user-context JWT
