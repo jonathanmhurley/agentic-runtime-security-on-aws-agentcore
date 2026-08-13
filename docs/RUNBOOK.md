@@ -237,12 +237,90 @@ path (unregistered sub -> 403).
 
 ---
 
+
+---
+
+## Stage 2b — AgentCore Gateway (native proof-of-value)
+
+Proves the same flow as Stage 2 (present JWT → validate → scoped credential → KB read)
+but using the **native AgentCore Gateway primitive** instead of a hand-built broker Lambda.
+Directly answers Welly's "prove it inside AgentCore Runtime / Gateway."
+
+### 2b-1. Publish OIDC discovery to the repo
+
+The `.well-known/openid-configuration` and `jwks.json` are already committed to
+`applications/vault-standin/` and served via the public GitHub raw URL:
+
+```
+Discovery URL: https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration
+Issuer:        https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin
+JWKS:          https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/jwks.json
+```
+
+> The repo must be **public** for these raw URLs to be fetchable by Gateway.
+
+### 2b-2. Add a Gateway to the agent project
+
+```bash
+cd applications/stage0hello
+agentcore add gateway \
+  --name workshop-gateway \
+  --authorizer-type CUSTOM_JWT \
+  --discovery-url "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration" \
+  --allowed-audience vault-standin \
+  --runtimes stage0hello
+agentcore deploy
+agentcore status    # expect Gateway: Deployed
+```
+
+### 2b-3. Deploy the Gateway KB target Lambda
+
+```bash
+cd applications/gateway-kb-target
+bash deploy.sh
+```
+
+This creates a thin Lambda wrapping `bedrock:Retrieve`, grants the Gateway's IAM role
+`lambda:InvokeFunction` on it, and registers it as a Gateway target with tool schema
+`kb-retrieve___retrieve_from_kb`. If `create-gateway-target` fails on permission
+propagation, wait 15s and retry the `create-gateway-target` call from the script output.
+
+### 2b-4. Mint a JWT and invoke through the Gateway
+
+```bash
+cd applications/vault-standin
+JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
+  --iss "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin" \
+  --scopes kb:read --kid stage2-key-1 --ttl 900)"
+
+curl -s -X POST "https://<GATEWAY_ID>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"kb-retrieve___retrieve_from_kb","arguments":{"query":"RapidLane SLA"}},"id":1}' | python3 -m json.tool
+```
+
+Replace `<GATEWAY_ID>` with the ID from `agentcore status` or:
+```bash
+aws bedrock-agentcore-control get-gateway --gateway-identifier <ID> --query gatewayUrl --output text
+```
+
+Or just run from the repo root:
+```bash
+bash demo.sh "What is RapidLane's same-day SLA?"
+```
+
+**Proven:** the Meridian SLA (6 hours if booked before 11 AM) comes through the Gateway.
+JWT validated via OIDC discovery + JWKS. Caller never held `bedrock:Retrieve` — Gateway
+brokered it via `GATEWAY_IAM_ROLE`. Same principle as Vault vending a scoped credential,
+native AgentCore primitive.
+
 ## Quick reference — what's proven and where it lives
 
 | Stage | Proves | Key files | Deploy |
 |---|---|---|---|
 | 0 | AgentCore runs, agent identity | `applications/stage0hello/` | `agentcore deploy` |
-| 1 | Scoped-cred KB read (OBJ-1, OBJ-2, OBJ-4) | `stage0hello/app/.../main.py` (`retrieve_from_kb`), `applications/stage1-kb/` | `create-kb.sh` + IAM grant + `agentcore deploy` |
-| 2 | JWT -> validate -> allowlist -> vend (full Vault-shape) | `applications/vault-standin/` | `broker/deploy.sh` |
+| 1 | Scoped-cred KB read (OBJ-1, OBJ-2, OBJ-4) | `stage0hello/app/.../main.py`, `applications/stage1-kb/` | `create-kb.sh` + IAM grant + `agentcore deploy` |
+| 2 | JWT -> validate -> allowlist -> vend (Vault-shape via Lambda broker) | `applications/vault-standin/` | `broker/deploy.sh` |
+| **2b** | **Same flow, native Gateway** (recommended proof) | `applications/gateway-kb-target/`, Gateway config | `gateway-kb-target/deploy.sh` + `demo.sh` |
 
 Tested-against versions are in `DESIGN.md` §7. Stage 3 (real Vault) is in `VAULT_HANDOFF.md`.
