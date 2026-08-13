@@ -9,8 +9,17 @@
             "roleArn": "arn:aws:iam::036325003285:role/AgentCore-stage0hello-def-ApplicationAgentStage0hel-sV2ZNvKgNJNS"
           }
         },
+        "mcp": {
+          "gateways": {
+            "workshop-gateway": {
+              "gatewayId": "stage0hello-workshop-gateway-x6b1lo1l4l",
+              "gatewayArn": "arn:aws:bedrock-agentcore:us-east-1:036325003285:gateway/stage0hello-workshop-gateway-x6b1lo1l4l",
+              "gatewayUrl": "https://stage0hello-workshop-gateway-x6b1lo1l4l.gateway.bedrock-agentcore.us-east-1.amazonaws.com"
+            }
+          }
+        },
         "stackName": "AgentCore-stage0hello-default",
-        "deployHash": "b8748da388c6cbee"
+        "deployHash": "f50a5f3063a1e6cc"
       }
     }
   }

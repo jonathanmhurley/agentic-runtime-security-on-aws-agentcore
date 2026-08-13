@@ -15,10 +15,7 @@
       "codeLocation": "app/stage0hello/",
       "runtimeVersion": "PYTHON_3_14",
       "networkMode": "PUBLIC",
-      "protocol": "HTTP",
-      "environmentVariables": {
-        "BEDROCK_KB_ID": "QLKOTZM2GC"
-      }
+      "protocol": "HTTP"
     }
   ],
   "memories": [],
@@ -26,7 +23,25 @@
   "credentials": [],
   "evaluators": [],
   "onlineEvalConfigs": [],
-  "agentCoreGateways": [],
+  "agentCoreGateways": [
+    {
+      "name": "workshop-gateway",
+      "protocolType": "None",
+      "description": "Gateway for workshop-gateway",
+      "targets": [],
+      "authorizerType": "CUSTOM_JWT",
+      "authorizerConfiguration": {
+        "customJwtAuthorizer": {
+          "discoveryUrl": "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration",
+          "allowedAudience": [
+            "vault-standin"
+          ]
+        }
+      },
+      "enableSemanticSearch": true,
+      "exceptionLevel": "NONE"
+    }
+  ],
   "policyEngines": [],
   "configBundles": [],
   "abTests": [],
