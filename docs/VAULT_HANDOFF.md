@@ -31,6 +31,36 @@ then `terraform apply` that module against it. The module provisions:
 
 ---
 
+## 1b. Phase A RESOLVED — JWT issuer + claim shape confirmed
+
+The following inputs to `vault_config` are now confirmed. Oscar can configure Vault
+against these without further discovery:
+
+| Input | Value | Source |
+|---|---|---|
+| `agentcore_issuer` | `https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin` | GitHub-hosted static OIDC discovery (same issuer Gateway already trusts) |
+| `agentcore_jwks_url` | `https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/jwks.json` | Committed to the public repo; RS256, kid `stage2-key-1` |
+| `agentcore_audiences` | `["vault-standin"]` | Matches the `--aud` used in `mint-jwt.py` |
+| JWT `sub` for UC1 | `uc1-agent` | Matches the Agent Registry entry in `vault_config/main.tf` |
+| `optional_authorization_details` | `true` (UC1) | RAR not required until UC2/UC3 |
+
+**Rationale for using the local keypair (not AgentCore Identity or an external OAS):**
+For UC1, the workshop teaches *what Vault validates* — the JWT claim structure,
+JWKS-based signature verification, and the Agent Registry check. A self-hosted
+keypair + OIDC discovery makes the entire trust chain visible and inspectable
+(attendees can `cat` the private key, decode the token at jwt.io, and see every
+step). This is optimal for a security workshop. The issuer upgrades to AgentCore
+Identity or an external OAS in UC2/UC3 when user-delegation claims (OBO) become
+relevant — that swap is a config change in `vault_config`, not a rebuild.
+
+**What this means for Oscar (Phase B):**
+- Point `vault_oauth_resource_server_config_profile.agentcore` at the issuer/JWKS above
+- Register `uc1-agent` in the Agent Registry with the `uc1` policy
+- The existing `mint-jwt.py` produces tokens Vault will accept with zero changes
+- Same JWT works for both Gateway *and* Vault (parallel paths, not nested)
+
+---
+
 ## 2. Deployment prerequisites (the parts still open)
 
 These are the things Stage 3 needs that Stages 0-2 did not:
@@ -55,7 +85,7 @@ These are the things Stage 3 needs that Stages 0-2 did not:
    - `rds_endpoint`, `rds_db_name`, `rds_master_username`, `rds_master_user_secret_arn`
    - `bedrock_reader_role_arn` — the IAM role `aws/sts/bedrock-reader` assumes
 
-   > **The AgentCore issuer/JWKS values are the one genuinely unproven piece.** Stage 2
+   > **RESOLVED (Phase A):** the issuer/JWKS values are confirmed — see §1b above. The local Stage 2
    > used a local keypair + gist JWKS as a stand-in *because* we had not yet confirmed
    > the exact AgentCore Identity issuer/JWKS/claim shape for a workload token. Before
    > wiring Vault's OAuth resource server, confirm what AgentCore Identity actually emits
