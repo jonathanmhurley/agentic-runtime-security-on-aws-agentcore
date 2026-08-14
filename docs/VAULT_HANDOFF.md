@@ -61,6 +61,26 @@ relevant — that swap is a config change in `vault_config`, not a rebuild.
 
 ---
 
+
+## 1c. Phase C COMPLETE — Vault config applied (Aug 14, 2026)
+
+All Vault Enterprise resources are configured on a dev-mode instance (2.0.4+ent):
+- OAuth resource server profile `agentcore` trusting our GitHub-hosted JWKS ✓
+- Agent Registry: `uc1-agent` registered (entity `f38e8fd6-...`, reg ID `9a57ce93-...`) ✓
+- AWS secrets engine + `bedrock-reader` role ✓
+- `uc1` policy + identity entity ✓
+- Audit device (stdout, JSON) ✓
+
+**Correct API paths discovered (different from earlier assumptions):**
+- Activation: `PUT sys/activation-flags/oauth-resource-server/activate`
+- Profile: `PUT sys/config/oauth-resource-server/:name` (no `profiles/` segment)
+- Agent Registry register: `PUT agent-registry/register` (not `agent-registry/registration`)
+- Agent Registry read: `GET agent-registry/registration/display-name/:name`
+
+**Next: Phase D** — swap the agent's credential path to call Vault directly with the JWT.
+
+---
+
 ## 2. Deployment prerequisites (the parts still open)
 
 These are the things Stage 3 needs that Stages 0-2 did not:

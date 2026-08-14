@@ -1,9 +1,9 @@
-output "oauth_profile_name" {
-  value       = vault_oauth_resource_server_config_profile.agentcore.profile_name
-  description = "Vault OAuth resource server profile name for AgentCore JWTs."
+output "uc1_entity_id" {
+  value       = vault_identity_entity.uc1_agent.id
+  description = "Vault identity entity ID for the uc1-agent (used in Agent Registry)."
 }
 
-output "uc1_db_role" {
-  value       = vault_database_secret_backend_role.uc1_readonly.name
-  description = "Vault DB role for UC1 read-only JIT credentials."
+output "aws_backend_path" {
+  value       = vault_aws_secret_backend.aws.path
+  description = "AWS secrets engine mount path."
 }

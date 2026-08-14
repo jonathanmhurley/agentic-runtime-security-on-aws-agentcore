@@ -1,26 +1,22 @@
 ################################################################################
-# vault_config Module — Main (AgentCore edition, UC1 slice)
+# vault_config Module — Main (AgentCore edition)
 #
-# Bridges the self-hosted Vault Enterprise deployment to the AgentCore-hosted
-# agents. UC1 slice provisions:
+# Provisions Vault Enterprise configuration for the workshop:
 #   - Audit device: file -> stdout, json (single-plane audit trail)
-#   - OAuth resource server profile (CONF-02): validates AgentCore Identity
-#     JWTs DIRECTLY via X-Vault-Token against the AgentCore JWKS endpoint.
-#     No Vault login round-trip. Replaces the retired Kubernetes auth method.
-#   - PostgreSQL secrets engine + uc1-readonly role (SELECT-only)
-#   - AWS secrets engine: aws/sts/bedrock-reader (scoped Bedrock STS for the KB)
-#   - Agent Registry (beta): uc1 agent registration (Enterprise; version-pinned)
+#   - OAuth resource server profile: validates AgentCore-issued JWTs directly
+#     via X-Vault-Token against the workshop JWKS endpoint.
+#   - AWS secrets engine: aws/sts/bedrock-reader (scoped Bedrock STS)
+#   - Agent Registry: uc1-agent identity entity + registration
+#   - Policy: uc1 (read-only access to aws/sts/bedrock-reader)
 #
-# UC2/UC3 slices (per-user OBO, refund-writer) are added in their own files.
+# DB secrets engine (uc1-readonly, uc2-personal-readonly) is commented out —
+# no RDS deployed for UC1. Add back when UC2 introduces database credentials.
 ################################################################################
 
 terraform {
   required_providers {
     vault = {
-      source = "hashicorp/vault"
-      # 5.10.1 is the first release exposing vault_oauth_resource_server_config_profile
-      # + vault_agent_registration. Pin the exact patch floor (carried forward from
-      # the EKS repo's 09-DISCOVERY PROVIDER_MIN). See docs/DESIGN.md section 7.
+      source  = "hashicorp/vault"
       version = ">= 5.10.1, < 6.0.0"
     }
     aws = {
@@ -32,8 +28,6 @@ terraform {
 
 ################################################################################
 # Vault audit device — single hash-chained stream (JSON)
-# The AgentCore-issued JWT carries resolved user identity end-to-end, so this
-# ONE stream answers user + agent + authorization + lease (see DESIGN section 3.4).
 ################################################################################
 
 resource "vault_audit" "stdout" {
@@ -45,73 +39,33 @@ resource "vault_audit" "stdout" {
 }
 
 ################################################################################
-# OAuth resource server — CONF-02 (retargeted to AgentCore Identity JWKS)
+# OAuth resource server — validates the workshop JWT directly via X-Vault-Token
 #
-# The AgentCore Identity JWT authorizes a Vault request DIRECTLY via the
-# X-Vault-Token header against this resource-server profile. No jwt_login
-# round-trip, no synthetic Vault token. This replaces the EKS Kubernetes auth
-# method entirely.
-#
-#   issuer_id  <- AgentCore Identity issuer
-#   jwks_uri   <- AgentCore Identity JWKS endpoint (var.agentcore_jwks_url)
-#   audiences  <- the agent workload audience(s)
-#   user_claim <- "sub" (the agent workload identity subject for UC1)
+# The JWT is signed with our local RS256 keypair; Vault fetches the public key
+# from the GitHub-hosted JWKS endpoint. No Vault login round-trip.
 ################################################################################
 
-resource "vault_activation_flags" "oauth_resource_server" {
-  feature = "oauth-resource-server"
+resource "vault_generic_endpoint" "activate_oauth_rs" {
+  path                 = "sys/activation-flags/oauth-resource-server/activate"
+  ignore_absent_fields = true
+  disable_read         = true
+  disable_delete       = true
+  data_json = "{}"
 }
 
-resource "vault_oauth_resource_server_config_profile" "agentcore" {
-  profile_name         = "agentcore"
-  issuer_id            = var.agentcore_issuer
-  use_jwks             = true
-  jwks_uri             = var.agentcore_jwks_url
-  audiences            = var.agentcore_audiences
-  supported_algorithms = ["RS256"]
-  user_claim           = "sub"
-
-  depends_on = [vault_activation_flags.oauth_resource_server]
-}
-
-################################################################################
-# PostgreSQL secrets engine + uc1-readonly role (SELECT-only, JIT, TTL-bound)
-################################################################################
-
-resource "vault_mount" "database" {
-  path = "database"
-  type = "database"
-}
-
-resource "vault_database_secret_backend_connection" "pg" {
-  backend           = vault_mount.database.path
-  name              = "workshop-pg"
-  allowed_roles     = ["uc1-readonly"]
-  verify_connection = false
-
-  postgresql {
-    connection_url = "postgresql://{{username}}:{{password}}@${var.rds_endpoint}/${var.rds_db_name}?sslmode=require"
-    username       = var.rds_master_username
-    password       = local.rds_master_password
-  }
-}
-
-resource "vault_database_secret_backend_role" "uc1_readonly" {
-  backend     = vault_mount.database.path
-  name        = "uc1-readonly"
-  db_name     = vault_database_secret_backend_connection.pg.name
-  default_ttl = 900  # 15m — JIT, no standing creds (OBJ-2)
-  max_ttl     = 1800
-  creation_statements = [
-    "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
-    "GRANT USAGE ON SCHEMA banking TO \"{{name}}\";",
-    "GRANT SELECT ON ALL TABLES IN SCHEMA banking TO \"{{name}}\";",
-  ]
-  revocation_statements = [
-    "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA banking FROM \"{{name}}\";",
-    "REVOKE USAGE ON SCHEMA banking FROM \"{{name}}\";",
-    "DROP ROLE IF EXISTS \"{{name}}\";",
-  ]
+resource "vault_generic_endpoint" "oauth_profile" {
+  depends_on           = [vault_generic_endpoint.activate_oauth_rs]
+  path                 = "sys/config/oauth-resource-server/agentcore"
+  ignore_absent_fields = true
+  disable_delete       = true
+  data_json = jsonencode({
+    issuer_id            = var.agentcore_issuer
+    use_jwks             = true
+    jwks_uri             = var.agentcore_jwks_url
+    audiences            = var.agentcore_audiences
+    supported_algorithms = ["RS256"]
+    user_claim           = "sub"
+  })
 }
 
 ################################################################################
@@ -132,28 +86,74 @@ resource "vault_aws_secret_backend_role" "bedrock_reader" {
 }
 
 ################################################################################
-# Vault policy — uc1 (read-only DB creds + bedrock STS)
+# Vault policy — uc1 (bedrock STS only; DB path added when RDS exists)
 ################################################################################
 
 resource "vault_policy" "uc1" {
   name   = "uc1"
   policy = <<-EOT
-    path "database/creds/uc1-readonly" { capabilities = ["read"] }
-    path "aws/sts/bedrock-reader"      { capabilities = ["read"] }
+    path "aws/sts/bedrock-reader" { capabilities = ["read"] }
   EOT
 }
 
 ################################################################################
-# Agent Registry (beta, Enterprise) — UC1 agent registration
-# BETA: pinned via the provider floor above. Isolated so a beta API shift has a
-# one-resource blast radius (DESIGN section 7).
+# Identity entity + Agent Registry for uc1-agent
+#
+# The Agent Registry requires an existing identity entity. We create one for
+# the UC1 agent, attach the uc1 policy, then register it in the Agent Registry.
 ################################################################################
 
-resource "vault_agent_registration" "uc1" {
-  # Registers the UC1 agent workload identity as a Vault identity entity with
-  # approved scopes. Unregistered agents are blocked.
-  name                          = "uc1-agent"
-  profile_name                  = vault_oauth_resource_server_config_profile.agentcore.profile_name
-  policies                      = [vault_policy.uc1.name]
-  optional_authorization_details = true # UC1: RAR optional (UC3 will set false)
+resource "vault_identity_entity" "uc1_agent" {
+  name     = "uc1-agent"
+  policies = [vault_policy.uc1.name]
+  metadata = {
+    purpose = "Workshop UC1 read-only agent (AgentCore Runtime)"
+  }
 }
+
+resource "vault_generic_endpoint" "agent_registry_uc1" {
+  depends_on           = [vault_identity_entity.uc1_agent, vault_generic_endpoint.oauth_profile]
+  path                 = "agent-registry/register"
+  ignore_absent_fields = true
+  disable_read         = true
+  disable_delete       = true
+  data_json = jsonencode({
+    display_name = "uc1-agent"
+    entity_id    = vault_identity_entity.uc1_agent.id
+  })
+}
+
+################################################################################
+# DB secrets engine — COMMENTED OUT (no RDS deployed for UC1)
+# Uncomment when UC2 introduces database credentials.
+################################################################################
+
+# resource "vault_mount" "database" {
+#   path = "database"
+#   type = "database"
+# }
+#
+# resource "vault_database_secret_backend_connection" "pg" {
+#   backend           = vault_mount.database.path
+#   name              = "workshop-pg"
+#   allowed_roles     = ["uc1-readonly"]
+#   verify_connection = false
+#   postgresql {
+#     connection_url = "postgresql://{{username}}:{{password}}@${var.rds_endpoint}/${var.rds_db_name}?sslmode=require"
+#     username       = var.rds_master_username
+#     password       = var.rds_master_password
+#   }
+# }
+#
+# resource "vault_database_secret_backend_role" "uc1_readonly" {
+#   backend     = vault_mount.database.path
+#   name        = "uc1-readonly"
+#   db_name     = vault_database_secret_backend_connection.pg.name
+#   default_ttl = 900
+#   max_ttl     = 1800
+#   creation_statements = [
+#     "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
+#     "GRANT USAGE ON SCHEMA banking TO \"{{name}}\";",
+#     "GRANT SELECT ON ALL TABLES IN SCHEMA banking TO \"{{name}}\";",
+#   ]
+# }
