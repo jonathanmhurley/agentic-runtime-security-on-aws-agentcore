@@ -3,28 +3,48 @@ title: 'Cleanup'
 weight: 80
 ---
 
-## Proven stages (Stages 0-2b)
+## Tear down in reverse order
+
+### Vault Enterprise
 
 ```bash
-# Tear down the Gateway KB target Lambda
-cd applications/gateway-kb-target
-# (no teardown script yet — delete manually via AWS console or CLI)
+# Terminate the Vault EC2 instance
+aws ec2 terminate-instances --instance-ids <VAULT_INSTANCE_ID> --region us-east-1
 
-# Tear down the managed KB
+# Delete the security group (after instance terminates)
+aws ec2 delete-security-group --group-id <SG_ID> --region us-east-1
+```
+
+### Gateway KB target Lambda
+
+```bash
+aws lambda delete-function --function-name gateway-kb-target --region us-east-1
+```
+
+### Managed Knowledge Base
+
+```bash
 cd applications/stage1-kb
 bash teardown-kb.sh
+```
 
-# Tear down the AgentCore Runtime + Gateway
+### AgentCore Runtime + Gateway
+
+```bash
 cd applications/stage0hello
 agentcore destroy
 ```
 
-## Stage 2 broker (if deployed)
+### Stage 2 broker (if deployed)
 
-The Stage 2 broker Lambda (`stage2-cred-broker`) can be deleted via the AWS console
-or `aws lambda delete-function --function-name stage2-cred-broker`.
+```bash
+aws lambda delete-function --function-name stage2-cred-broker --region us-east-1
+```
 
-## Eventual packaged teardown
+### IAM cleanup
 
-`bash infrastructure/scripts/teardown.sh` — not yet functional (see
-`infrastructure/README.md`).
+Remove the inline policies added during the workshop:
+```bash
+aws iam delete-user-policy --user-name hurleyjm --policy-name assume-vended-role
+aws iam delete-role-policy --role-name Stage2VendedKBReadRole --policy-name kb-read
+```

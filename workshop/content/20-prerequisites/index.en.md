@@ -3,25 +3,31 @@ title: 'Prerequisites'
 weight: 20
 ---
 
-## What's needed today (Stages 0-2b)
+## AWS account requirements
 
-- **AWS account** with Amazon Bedrock AgentCore enabled (us-east-1)
-- **Bedrock model access**: `amazon.nova-pro-v1:0` (Nova Pro via CRIS) and
-  `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings)
-- **Node.js 20+** (for the AgentCore CLI: `npm install -g @aws/agentcore`)
-- **Python 3.10+** + `pyjwt`, `cryptography` (for JWT minting tools)
-- **AWS CLI** with a profile configured for the target account
+- **Amazon Bedrock** enabled with model access for:
+  - `amazon.nova-pro-v1:0` (Nova Pro via CRIS — agent reasoning)
+  - `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings, us-east-1)
+- **Amazon Bedrock AgentCore** enabled (Runtime + Gateway)
+- **AWS Lambda**, **IAM**, **EC2**, **S3**, **STS** access
 
-## What's needed for Stage 3 (Vault — not yet deployed)
+## Tools required
 
-- **HashiCorp Vault Enterprise license** — required for the Agent Registry (beta).
-  Provided by Oscar/content team, injected at deploy from a content-team-owned secret.
-- The license is stored locally at `infrastructure/modules/vault_server/vault.hclic`
-  (gitignored — never committed).
+- **Node.js 20+** — the AgentCore CLI (`npm install -g @aws/agentcore`)
+- **Python 3.10+** with `pyjwt` and `cryptography` — for JWT minting tools
+- **AWS CLI v2** with a configured profile for the target account
+- **Terraform 1.10+** — for applying the Vault configuration
+- **HashiCorp Vault CLI** — for interacting with the deployed Vault instance
 
-> No IVIA/IBM licensing in this edition.
+## Vault Enterprise license
+
+A **HashiCorp Vault Enterprise license** is required for the Agent Registry (beta)
+and the OAuth resource server features. For this workshop, the license is
+pre-provisioned — you do not need to obtain one separately.
+
+> No IVIA/IBM licensing is needed in this edition.
 
 ## Version pinning
 
-This workshop is validated against pinned versions. See the "Tested against" block in
-`docs/DESIGN.md` §7. Do not float to `latest`.
+This workshop is validated against pinned versions. Do not float to `latest`.
+See the "Tested against" block in `docs/DESIGN.md` §7 for the exact versions.
