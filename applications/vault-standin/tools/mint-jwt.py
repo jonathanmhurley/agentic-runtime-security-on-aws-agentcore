@@ -14,6 +14,7 @@ Requires: pyjwt, cryptography  (pip install pyjwt cryptography)
 """
 import argparse
 import time
+import uuid
 
 import jwt  # PyJWT
 
@@ -37,6 +38,7 @@ def main() -> None:
         "iat": now,
         "exp": now + args.ttl,
         "scope": args.scopes,
+        "jti": str(uuid.uuid4()),
     }
     key = open(args.key, "rb").read() if not args.key.startswith("-") else args.key
     token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": args.kid})

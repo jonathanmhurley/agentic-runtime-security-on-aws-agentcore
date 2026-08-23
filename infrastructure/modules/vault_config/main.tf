@@ -59,12 +59,13 @@ resource "vault_generic_endpoint" "oauth_profile" {
   ignore_absent_fields = true
   disable_delete       = true
   data_json = jsonencode({
-    issuer_id            = var.agentcore_issuer
-    use_jwks             = true
-    jwks_uri             = var.agentcore_jwks_url
-    audiences            = var.agentcore_audiences
-    supported_algorithms = ["RS256"]
-    user_claim           = "sub"
+    issuer_id                      = var.agentcore_issuer
+    use_jwks                       = true
+    jwks_uri                       = var.agentcore_jwks_url
+    audiences                      = var.agentcore_audiences
+    supported_algorithms           = ["RS256"]
+    user_claim                     = "sub"
+    optional_authorization_details = true
   })
 }
 
@@ -118,8 +119,10 @@ resource "vault_generic_endpoint" "agent_registry_uc1" {
   disable_read         = true
   disable_delete       = true
   data_json = jsonencode({
-    display_name = "uc1-agent"
-    entity_id    = vault_identity_entity.uc1_agent.id
+    display_name                   = "uc1-agent"
+    entity_id                      = vault_identity_entity.uc1_agent.id
+    optional_authorization_details = true
+    ceiling_policies               = ["uc1"]
   })
 }
 

@@ -314,6 +314,99 @@ JWT validated via OIDC discovery + JWKS. Caller never held `bedrock:Retrieve` �
 brokered it via `GATEWAY_IAM_ROLE`. Same principle as Vault vending a scoped credential,
 native AgentCore primitive.
 
+
+---
+
+## Stage 3 — Real Vault Enterprise (JWT auth + dynamic credentials)
+
+Proves the full Vault Agentic pattern: JWT → Vault validates → scoped STS credentials
+vended. Same JWT as Stages 2/2b, now brokered by real HashiCorp Vault Enterprise.
+
+### 3-1. Deploy Vault Enterprise (dev mode, IP-restricted)
+
+```bash
+cd infrastructure/modules/vault_server
+KEY_NAME=vault-workshop bash deploy-vault-dev.sh
+# Prints VAULT_ADDR + VAULT_TOKEN. Wait ~90s for user-data to finish.
+export VAULT_ADDR=http://<IP>:8200
+export VAULT_TOKEN=workshop-root-token
+vault status
+```
+
+### 3-2. Apply the Vault configuration
+
+```bash
+cd infrastructure/modules/vault_config
+rm -f terraform.tfstate terraform.tfstate.backup
+terraform apply -auto-approve
+```
+
+Then configure the JWT auth method (not yet in Terraform — run manually):
+
+```bash
+vault auth enable jwt
+vault write auth/jwt/config \
+  jwks_url="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/jwks.json" \
+  default_role="uc1-agent"
+vault write auth/jwt/role/uc1-agent \
+  role_type="jwt" \
+  bound_audiences="vault-standin" \
+  bound_subject="uc1-agent" \
+  user_claim="sub" \
+  token_policies="uc1" \
+  token_ttl="15m"
+```
+
+Configure the AWS secrets engine credentials + trust policy:
+
+```bash
+vault write aws/config/root \
+  access_key="$(aws configure get aws_access_key_id --profile agenticvault)" \
+  secret_key="$(aws configure get aws_secret_access_key --profile agenticvault)" \
+  region=us-east-1
+
+aws iam put-user-policy --user-name hurleyjm --profile agenticvault \
+  --policy-name assume-vended-role \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Resource":"arn:aws:iam::<ACCOUNT_ID>:role/Stage2VendedKBReadRole"}]}'
+
+aws iam update-assume-role-policy --profile agenticvault \
+  --role-name Stage2VendedKBReadRole \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam::<ACCOUNT_ID>:role/Stage2BrokerLambdaRole","arn:aws:iam::<ACCOUNT_ID>:user/hurleyjm"]},"Action":"sts:AssumeRole"}]}'
+```
+
+### 3-3. Prove the flow (allow + deny)
+
+```bash
+cd applications/vault-standin
+
+# Mint a JWT (includes jti — required by Vault 2.0.4)
+JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
+  --iss "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin" \
+  --scopes kb:read --kid stage2-key-1 --ttl 900)"
+
+# Authenticate + read scoped creds in one shot
+VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")" \
+  vault read aws/sts/bedrock-reader
+# Expected: STS creds, TTL 15m, assumed-role/Stage2VendedKBReadRole
+
+# Negative test — unregistered agent denied
+BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
+  --iss "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin" \
+  --scopes kb:read --kid stage2-key-1 --ttl 900)"
+vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
+# Expected: error "invalid subject (sub) claim"
+```
+
+**Proven:** JWT → Vault validates (JWKS + bound_subject) → entity + uc1 policy → scoped
+STS creds. Unregistered agents denied. Same security controls as the Stage 2 broker,
+now on real Vault Enterprise.
+
+> **Lesson:** use the GA **JWT auth method** (`auth/jwt/`), not the beta OAuth Resource
+> Server. The OAuth RS has an undocumented alias-lookup issue in 2.0.4 where pre-created
+> entity aliases are never found ("no alias found / error looking up entity"). The JWT
+> auth method auto-creates aliases on first login and is fully GA. Same JWT, same JWKS,
+> same security story — one extra login step that makes the authentication visible.
+
 ## Quick reference — what's proven and where it lives
 
 | Stage | Proves | Key files | Deploy |
@@ -322,5 +415,6 @@ native AgentCore primitive.
 | 1 | Scoped-cred KB read (OBJ-1, OBJ-2, OBJ-4) | `stage0hello/app/.../main.py`, `applications/stage1-kb/` | `create-kb.sh` + IAM grant + `agentcore deploy` |
 | 2 | JWT -> validate -> allowlist -> vend (Vault-shape via Lambda broker) | `applications/vault-standin/` | `broker/deploy.sh` |
 | **2b** | **Same flow, native Gateway** (recommended proof) | `applications/gateway-kb-target/`, Gateway config | `gateway-kb-target/deploy.sh` + `demo.sh` |
+| **3** | **Real Vault Enterprise** — JWT auth + dynamic STS creds + deny test | `infrastructure/modules/vault_config/`, `vault_server/` | `deploy-vault-dev.sh` + `terraform apply` + JWT auth CLI |
 
 Tested-against versions are in `DESIGN.md` §7. Stage 3 (real Vault) is in `VAULT_HANDOFF.md`.

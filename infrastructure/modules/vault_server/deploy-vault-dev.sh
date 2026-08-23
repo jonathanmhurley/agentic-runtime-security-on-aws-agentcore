@@ -36,20 +36,30 @@ fi
 LICENSE="$(cat "$LICENSE_FILE")"
 
 # 1. Security group — open port 8200 (Vault API) from anywhere (lab only!)
+# Auto-detect your current public IP for the security group (not 0.0.0.0/0).
+# This avoids Palisade/Epoxy flagging and auto-terminating the instance.
+MY_IP="$(curl -s --connect-timeout 5 https://checkip.amazonaws.com | tr -d '\n')"
+if [ -z "$MY_IP" ]; then
+  echo "ERROR: could not determine your public IP. Check internet connectivity." >&2; exit 1
+fi
+MY_CIDR="${MY_IP}/32"
+echo "[vault-dev] your IP: $MY_IP (SG will allow only $MY_CIDR)"
+
 SG_ID="$(aws ec2 describe-security-groups --profile "$PROFILE" --region "$REGION" \
   --filters "Name=group-name,Values=$SG_NAME" \
   --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "None")"
 if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
   echo "[vault-dev] creating security group $SG_NAME"
   SG_ID="$(aws ec2 create-security-group --profile "$PROFILE" --region "$REGION" \
-    --group-name "$SG_NAME" --description "Vault dev-mode (port 8200)" \
+    --group-name "$SG_NAME" --description "Vault dev-mode (port 8200, restricted to deployer IP)" \
     --query GroupId --output text)"
-  aws ec2 authorize-security-group-ingress --profile "$PROFILE" --region "$REGION" \
-    --group-id "$SG_ID" --protocol tcp --port 8200 --cidr 0.0.0.0/0
-  echo "[vault-dev] SG $SG_ID created (port 8200 open)"
-else
-  echo "[vault-dev] SG $SG_ID already exists"
 fi
+# Always update the ingress rule to the current IP (handles IP changes between sessions)
+aws ec2 revoke-security-group-ingress --profile "$PROFILE" --region "$REGION" \
+  --group-id "$SG_ID" --protocol tcp --port 8200 --cidr 0.0.0.0/0 2>/dev/null || true
+aws ec2 authorize-security-group-ingress --profile "$PROFILE" --region "$REGION" \
+  --group-id "$SG_ID" --protocol tcp --port 8200 --cidr "$MY_CIDR" 2>/dev/null || true
+echo "[vault-dev] SG $SG_ID: port 8200 open to $MY_CIDR only"
 
 # 2. Find latest Amazon Linux 2023 AMI
 AMI_ID="$(aws ec2 describe-images --profile "$PROFILE" --region "$REGION" \
@@ -72,16 +82,22 @@ cat > /opt/vault/vault.hclic <<'LIC'
 __LICENSE_PLACEHOLDER__
 LIC
 
-# Start Vault in dev mode with the Enterprise license
+# Start Vault in dev mode with the Enterprise license.
+# Use nohup + redirect so the process persists after user-data script exits.
 export VAULT_LICENSE_PATH=/opt/vault/vault.hclic
-# Dev mode: listen on all interfaces so the agent can reach it
-vault server -dev -dev-listen-address="0.0.0.0:8200" -dev-root-token-id="workshop-root-token" &
+nohup vault server -dev -dev-listen-address="0.0.0.0:8200" -dev-root-token-id="workshop-root-token"   > /var/log/vault-dev.log 2>&1 &
 
-# Wait for Vault to be ready
-sleep 5
+# Wait for Vault to be ready (poll up to 30s)
 export VAULT_ADDR="http://127.0.0.1:8200"
 export VAULT_TOKEN="workshop-root-token"
-vault status
+for i in $(seq 1 30); do
+  if vault status >/dev/null 2>&1; then
+    echo "Vault is ready (attempt $i)"
+    vault status
+    break
+  fi
+  sleep 1
+done
 USERDATA
 )
 # Inject the actual license into the user-data
@@ -95,7 +111,7 @@ LAUNCH_ARGS=(
   --instance-type "$INSTANCE_TYPE"
   --security-group-ids "$SG_ID"
   --user-data "$USER_DATA"
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME}]"
+  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME},{Key=auto-delete,Value=no}]"
   --metadata-options "HttpTokens=required"
 )
 if [ -n "$KEY_NAME" ]; then

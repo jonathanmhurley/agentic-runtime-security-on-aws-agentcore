@@ -81,6 +81,32 @@ All Vault Enterprise resources are configured on a dev-mode instance (2.0.4+ent)
 
 ---
 
+## 1d. Phase D PROVEN — JWT → Vault → scoped STS creds (Aug 23, 2026)
+
+**Stage 3 is fully proven.** The Vault Agentic pattern works end-to-end:
+- JWT (RS256, `sub: uc1-agent`, `jti` included) → `auth/jwt/login` validates via JWKS
+- Vault issues token with `uc1` policy (auto-creates entity alias)
+- `vault read aws/sts/bedrock-reader` → scoped STS creds (15m TTL)
+- **Negative test:** `sub: not-registered` → `"invalid subject (sub) claim"` (denied)
+
+**Design decision:** uses the GA **JWT auth method** (`auth/jwt/`), NOT the beta OAuth
+Resource Server. The OAuth RS's entity-alias lookup has an undocumented issue in 2.0.4
+where pre-created aliases are never found (`"no alias found / error looking up entity"`)
+regardless of creation method. This is a beta-feature gap to resolve with HashiCorp for
+UC2/UC3 (where RAR claims add value). For UC1, the JWT auth method provides the same
+security controls (JWKS validation, `bound_subject` = allowlist, scoped policies) and is
+fully GA.
+
+**Key requirements discovered during implementation:**
+- JWT must include a `jti` claim (Vault 2.0.4 schema validation requires it)
+- `aws/sts/<role>` paths require `update` capability in the policy (not just `read`)
+- Vault dev-mode EC2 needs IP-restricted SG + `auto-delete:no` tag to survive account
+  security automation (Palisade/Epoxy)
+
+See `workshop/content/55-vault-credentials/` for the attendee-facing workshop page.
+
+---
+
 ## 2. Deployment prerequisites (the parts still open)
 
 These are the things Stage 3 needs that Stages 0-2 did not:
