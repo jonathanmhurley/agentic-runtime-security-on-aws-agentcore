@@ -1,12 +1,29 @@
 version: 2.0
-title: "Agentic Runtime Security with AgentCore and Vault"
-description: >-
-  Deploy a hands-on implementation of runtime AI agent security using Amazon
-  Bedrock AgentCore and HashiCorp Vault Enterprise. Agents authenticate with
-  JWTs, Gateway brokers scoped access to protected resources, and Vault vends
-  short-lived dynamic credentials — no standing privileges, full audit trail.
-duration: 120
-level: 300
-authors:
-  - Jonathan Hurley
-  - Oscar Medina
+
+defaultLocaleCode: en-US
+localeCodes:
+  - en-US
+
+params:
+  region: us-east-1
+
+awsAccountConfig:
+  accountSources:
+    - WorkshopStudio
+  participantRole:
+    managedPolicies:
+      - arn:aws:iam::aws:policy/ReadOnlyAccess
+      - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+      - arn:aws:iam::aws:policy/AWSCloudShellFullAccess
+      - arn:aws:iam::aws:policy/AWSLambda_FullAccess
+      - arn:aws:iam::aws:policy/IAMFullAccess
+      - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+  regionConfiguration:
+    minAccessibleRegions: 1
+    maxAccessibleRegions: 1
+    accessibleRegions:
+      required:
+        - us-east-1
+    deployableRegions:
+      required:
+        - us-east-1
