@@ -107,7 +107,7 @@ See `workshop/content/55-vault-credentials/` for the attendee-facing workshop pa
 
 ---
 
-## 2. Deployment prerequisites (the parts still open)
+## 2. Deployment prerequisites (mostly RESOLVED)
 
 These are the things Stage 3 needs that Stages 0-2 did not:
 

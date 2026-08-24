@@ -418,3 +418,212 @@ now on real Vault Enterprise.
 | **3** | **Real Vault Enterprise** — JWT auth + dynamic STS creds + deny test | `infrastructure/modules/vault_config/`, `vault_server/` | `deploy-vault-dev.sh` + `terraform apply` + JWT auth CLI |
 
 Tested-against versions are in `DESIGN.md` §7. Stage 3 (real Vault) is in `VAULT_HANDOFF.md`.
+
+
+---
+
+## UC2 — On-Behalf-Of + Vault Per-User Authorization
+
+Proven end-to-end on 2026-08-24. Builds on Stage 3 (Vault must be running).
+Proves: user identity flows from inbound JWT through AgentCore OBO exchange to Vault,
+where per-user policies grant or deny access to scoped STS credentials.
+
+### UC2-1. Deploy the mock OAuth token server
+
+```bash
+cd applications/oauth-mock-server
+bash deploy.sh
+```
+
+The mock server issues user-delegated JWTs with `sub: <username>` + `act: {sub: uc1-agent}`
+(RFC 8693 delegation). It validates `CLIENT_SECRET_BASIC` on the `/token` endpoint.
+
+> **SCP gotcha (internal Amazon accounts only):** if your account has an org SCP blocking
+> `AuthType: NONE` Function URLs, use `deploy-dev.sh` instead. It adds an API Gateway HTTP
+> API as an alternative endpoint. Workshop Studio vended accounts do NOT have this SCP.
+
+After deploy, fix the `CLIENT_SECRET` environment variable (deploy.sh writes a redacted
+placeholder due to tooling limitations):
+
+```bash
+python3 << 'PYEOF'
+import json, subprocess
+result = subprocess.run(["aws", "lambda", "get-function-configuration", "--function-name", "oauth-mock-server", "--profile", "agenticvault", "--region", "us-east-1", "--query", "Environment", "--output", "json"], capture_output=True, text=True)
+env = json.loads(result.stdout)
+env["Variables"]["CLIENT_SECRET"] = "workshop-obo-secret"
+env["Variables"]["TOKEN_ENDPOINT"] = "<FUNCTION_URL>/token"
+with open("/tmp/env-fix.json", "w") as f:
+    json.dump(env, f)
+subprocess.run(["aws", "lambda", "update-function-configuration", "--function-name", "oauth-mock-server", "--profile", "agenticvault", "--region", "us-east-1", "--environment", "file:///tmp/env-fix.json"], check=True, capture_output=True)
+print("Env vars fixed")
+PYEOF
+```
+
+Verify:
+```bash
+curl -s -X POST <FUNCTION_URL>/token \
+  -u 'workshop-obo-client:workshop-obo-secret' \
+  -d 'grant_type=client_credentials' | python3 -m json.tool
+# Expect: {"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "kb:read"}
+```
+
+### UC2-2. Register the OBO credential provider with AgentCore Identity
+
+```bash
+aws bedrock-agentcore-control create-oauth2-credential-provider \
+  --profile agenticvault --region us-east-1 \
+  --cli-input-json '{
+  "name": "workshop-obo-vault",
+  "credentialProviderVendor": "CustomOauth2",
+  "oauth2ProviderConfigInput": {
+    "customOauth2ProviderConfig": {
+      "oauthDiscovery": {
+        "authorizationServerMetadata": {
+          "issuer": "<ISSUER>",
+          "authorizationEndpoint": "<FUNCTION_URL>/token",
+          "tokenEndpoint": "<FUNCTION_URL>/token"
+        }
+      },
+      "clientId": "workshop-obo-client",
+      "clientSecret": "workshop-obo-secret",
+      "clientAuthenticationMethod": "CLIENT_SECRET_BASIC",
+      "onBehalfOfTokenExchangeConfig": { "grantType": "JWT_AUTHORIZATION_GRANT" }
+    }
+  }
+}'
+# Expect: status: READY
+```
+
+> **Lesson:** use `authorizationServerMetadata` (not `discoveryUrl`). The discovery-fetch
+> approach fails with "Credential Provider with no Authorization Endpoint information"
+> due to AgentCore caching stale metadata on initial registration.
+
+### UC2-3. Grant execution role permissions
+
+```bash
+# OBO exchange permission:
+aws iam put-role-policy --role-name AgentCore-stage0hello-def-ApplicationAgentStage0hel-sV2ZNvKgNJNS \
+  --profile agenticvault --region us-east-1 \
+  --policy-name obo-identity \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": ["bedrock-agentcore:GetResourceOauth2Token","bedrock-agentcore:GetWorkloadAccessToken","bedrock-agentcore:GetWorkloadAccessTokenForJWT","bedrock-agentcore:GetWorkloadAccessTokenForUserId"],
+      "Resource": "*"
+    }]
+  }'
+
+# Secrets Manager read (AgentCore stores client_secret there):
+aws iam put-role-policy --role-name AgentCore-stage0hello-def-ApplicationAgentStage0hel-sV2ZNvKgNJNS \
+  --profile agenticvault --region us-east-1 \
+  --policy-name obo-secrets \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:036325003285:secret:AgentCoreIdentity*"
+    }]
+  }'
+```
+
+### UC2-4. Add JWT authorizer to agentcore.json
+
+In `applications/stage0hello/agentcore/agentcore.json`, add to the runtime entry:
+
+```json
+"authorizerType": "CUSTOM_JWT",
+"authorizerConfiguration": {
+  "customJwtAuthorizer": {
+    "discoveryUrl": "<DISCOVERY_URL>",
+    "allowedAudience": ["vault-standin"]
+  }
+}
+```
+
+Then deploy:
+```bash
+cd applications/stage0hello
+AWS_PROFILE=agenticvault agentcore deploy
+```
+
+> **Note:** once the JWT authorizer is active, `agentcore invoke` without `--bearer-token`
+> returns 403. The runtime no longer accepts SigV4-only invocations.
+
+### UC2-5. Configure Vault per-user roles and policies
+
+```bash
+export VAULT_ADDR=http://<VAULT_IP>:8200
+export VAULT_TOKEN=workshop-root-token
+
+# Per-user policies:
+vault policy write alice-kb - <<EOF
+path "aws/sts/bedrock-reader" { capabilities = ["update"] }
+EOF
+
+vault policy write bob-kb - <<EOF
+path "aws/sts/bedrock-reader" { capabilities = ["deny"] }
+EOF
+
+# Per-user JWT roles:
+vault write auth/jwt/role/alice-user \
+  role_type=jwt bound_audiences=vault-standin \
+  bound_subject=alice@example.com user_claim=sub \
+  token_ttl=15m token_policies=alice-kb
+
+vault write auth/jwt/role/bob-user \
+  role_type=jwt bound_audiences=vault-standin \
+  bound_subject=bob@example.com user_claim=sub \
+  token_ttl=15m token_policies=bob-kb
+```
+
+> **SG gotcha:** Vault must be reachable from AgentCore Runtime. Open port 8200
+> to `0.0.0.0/0` (or the Runtime's egress range). Workshop Studio accounts do not
+> have Palisade/Epoxy, so this is safe. Internal Amazon accounts will auto-terminate
+> the rule; use a VPC BPA exclusion if needed.
+
+### UC2-6. Deploy agent code + test
+
+The agent code (`app/stage0hello/main.py`) includes `retrieve_from_kb_as_user` which
+performs: OBO exchange -> Vault JWT login -> STS creds -> KB retrieve (all per-user).
+
+```bash
+cd applications/stage0hello
+AWS_PROFILE=agenticvault agentcore deploy
+
+# Mint Alice's JWT:
+aws lambda invoke --function-name oauth-mock-server \
+  --profile agenticvault --region us-east-1 \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"username":"alice@example.com"}' /tmp/user-jwt.json >/dev/null
+USER_JWT=$(python3 -c "import json; r=json.load(open('/tmp/user-jwt.json')); print(r.get('access_token') or json.loads(r.get('body','{}')).get('access_token',''))")
+
+# Test (Alice gets KB answer via Vault-vended creds):
+AWS_PROFILE=agenticvault agentcore invoke --bearer-token "$USER_JWT" "What is RapidLane's SLA?"
+# Expect: Meridian SLA answer (6-hour delivery guarantee)
+
+# Negative test (Bob denied):
+aws lambda invoke --function-name oauth-mock-server \
+  --profile agenticvault --region us-east-1 \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"username":"bob@example.com"}' /tmp/bob-jwt.json >/dev/null
+BOB_JWT=$(python3 -c "import json; r=json.load(open('/tmp/bob-jwt.json')); print(r.get('access_token') or json.loads(r.get('body','{}')).get('access_token',''))")
+# Manual Vault test:
+BOB_TOKEN=$(vault write -format=json auth/jwt/login role=bob-user jwt="$BOB_JWT" | python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])")
+VAULT_TOKEN=$BOB_TOKEN vault write aws/sts/bedrock-reader ttl=15m
+# Expect: 403 permission denied
+```
+
+**Proven:** Alice -> OBO -> Vault (alice-kb policy) -> STS creds -> KB answer.
+Bob -> OBO -> Vault (bob-kb policy) -> 403 denied. Per-user enforcement works.
+
+> **Key gotchas discovered:**
+> - `import urllib.request` must be at module top level (not inside a function) when
+>   `urllib.parse` is also used, or Python raises `UnboundLocalError` due to scoping.
+> - API Gateway HTTP API base64-encodes form bodies (`isBase64Encoded: true`); handler
+>   must check and decode.
+> - The execution role needs `secretsmanager:GetSecretValue` on AgentCore's managed
+>   secret for the client credentials.
+> - Vault STS path `aws/sts/<role>` requires `update` capability (not `read`).
+> - STS minimum TTL is 900s (15m); `ttl=5m` returns a 400.

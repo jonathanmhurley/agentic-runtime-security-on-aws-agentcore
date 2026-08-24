@@ -74,7 +74,7 @@ Grounded in the current repo (`/Users/hurleyjm/Developer/agentic-runtime-securit
 | AgentCore Identity | IVIA as issuer + Vault k8s auth | Workload identity (ARN) per agent; issues user-context JWT; exposes JWKS endpoint Vault trusts. |
 | AgentCore Secure Token Vault | IVIA/CIBA consent + token store | Holds user-delegated OAuth tokens (OBO). |
 | OAuth2 credential provider (OBO config) | CIBA out-of-band flow | One `create-oauth2-credential-provider` call with `onBehalfOfTokenExchangeConfig`. |
-| External OIDC IdP (Cognito default) | OpenLDAP + IVIA user store | Pluggable: Cognito / Okta / Entra / IBM Verify. Cognito is the leanest for a vended-account workshop. |
+| External OIDC IdP (mock OAuth server) | OpenLDAP + IVIA user store | Self-hosted mock OAuth Lambda issuing user-delegated JWTs (RFC 8693 actor claim). Pluggable: swap for Cognito / Okta / Entra in production. |
 
 ### 3.4 Audit simplification
 
@@ -107,17 +107,15 @@ answers are unmistakably KB-grounded).
 
 ---
 
-## 4. The OBO / JWT flow (documented — NOT yet proven)
+## 4. The OBO / JWT flow (PROVEN — Aug 24 2026)
 
-> **Status:** the mechanics below are **confirmed against the AWS OBO docs and the
-> [aws-samples OBO reference](https://github.com/aws-samples/sample-bedrock-agentcore-identity-obo-token-exchange)**
-> (`04_agent_obo_example.py`, Strands, tested us-east-1, MIT-0), but they have **NOT been
-> executed in this project**. Stages 0-2 proved the *downstream* half (JWT -> validate via
-> JWKS -> allowlist -> vend scoped creds) using the credential-broker stand-in. The native
-> AgentCore OBO exchange itself is unproven. The single biggest unknown — the exact
-> AgentCore Identity issuer / JWKS URL / claim shape — must be confirmed first (see
-> `VAULT_HANDOFF.md` §2). OBO applies from **UC2 onward**; **UC1 has no user context** and
-> uses the agent's own workload identity, so none of this is on the UC1 path.
+> **Status:** the full OBO chain is **PROVEN end-to-end** (Aug 24 2026) on account
+> 036325003285 in us-east-1. The agent receives an inbound user JWT, performs the OBO
+> exchange via AgentCore Identity, presents the resulting token to Vault, and Vault
+> vends per-user scoped STS credentials. Both positive (Alice gets access) and negative
+> (Bob denied) tests pass. See `docs/RUNBOOK.md` UC2 section for exact commands.
+> OBO applies from **UC2 onward**; **UC1 has no user context** and uses the agent's own
+> workload identity.
 
 ### The two distinct tokens (do not conflate)
 
@@ -125,18 +123,18 @@ There are **two** tokens, issued by two different issuers, validated against two
 JWKS endpoints. Conflating them is the most common way to mis-wire Vault:
 
 1. **AgentCore user-context JWT** — issued by **AgentCore Identity**, validated against
-   **AgentCore's** JWKS. This is what `vault_config`'s OAuth resource server profile is
-   configured for (`agentcore_issuer` + `agentcore_jwks_url`). It carries the user identity
-   into Vault.
+   **AgentCore's** JWKS. In this workshop, we use a self-hosted keypair (GitHub-hosted
+   JWKS) trusted by both the Runtime's JWT authorizer and Vault's `auth/jwt/` method.
+   It carries the user identity into Vault.
 2. **OBO downstream access token** — issued by the **external IdP's** token endpoint via
-   the AgentCore OAuth *credential provider*, validated against the **IdP's** JWKS. This is
-   what an agent presents to a *third-party* OAuth-protected resource, NOT to Vault.
+   the AgentCore OAuth *credential provider*. In this workshop, the mock OAuth server
+   issues this token. It carries `sub: <username>` + `act: {sub: uc1-agent}`.
 
-For the workshop's Vault path, **Vault validates token #1** (the AgentCore user-context
-JWT). The OBO downstream token (#2) is only relevant if/when the agent calls an external
-OAuth API on the user's behalf. Decide per use case which token a given downstream needs.
+For the workshop's Vault path, **Vault validates the OBO token (#2)** via `auth/jwt/login`.
+The token carries the user's identity (`sub: alice@example.com`) and Vault applies
+per-user policies based on `bound_subject` in the JWT role configuration.
 
-### Setup (once, in bootstrap — the `agentcore_obo` module)
+### Setup (once, in bootstrap)
 
 ```bash
 aws bedrock-agentcore-control create-oauth2-credential-provider \
@@ -146,9 +144,15 @@ aws bedrock-agentcore-control create-oauth2-credential-provider \
     "credentialProviderVendor": "CustomOauth2",
     "oauth2ProviderConfigInput": {
       "customOauth2ProviderConfig": {
-        "oauthDiscovery": { "discoveryUrl": "https://<idp>/.well-known/openid-configuration" },
-        "clientId": "<client-id>",
-        "clientSecret": "<client-secret>",
+        "oauthDiscovery": {
+          "authorizationServerMetadata": {
+            "issuer": "<ISSUER>",
+            "authorizationEndpoint": "<FUNCTION_URL>/token",
+            "tokenEndpoint": "<FUNCTION_URL>/token"
+          }
+        },
+        "clientId": "workshop-obo-client",
+        "clientSecret": "<CLIENT_SECRET>",
         "clientAuthenticationMethod": "CLIENT_SECRET_BASIC",
         "onBehalfOfTokenExchangeConfig": { "grantType": "JWT_AUTHORIZATION_GRANT" }
       }
@@ -156,25 +160,37 @@ aws bedrock-agentcore-control create-oauth2-credential-provider \
   }'
 ```
 
-### Runtime (in the agent — two calls, chained)
+> **Lesson (Aug 24):** use `authorizationServerMetadata` with explicit `tokenEndpoint`
+> and `authorizationEndpoint`, NOT `discoveryUrl`. The discovery-fetch approach failed
+> with "Credential Provider with no Authorization Endpoint information" due to AgentCore
+> caching stale metadata. Inline metadata avoids this entirely.
 
-The inbound `<user-jwt>` is the **OIDC bearer token from the runtime's
-`customJWTAuthorizer`** (Cognito/Okta/etc.) — i.e. the token the end user's login
-produced, forwarded by AgentCore Runtime. Call 1's output is call 2's input:
+### Runtime (in the agent code)
+
+The Runtime delivers the workload access token (WAT) as a request header. The agent
+extracts it and passes it to `get_resource_oauth2_token`:
 
 ```bash
-# 1. Exchange the inbound user JWT for a workload access token.
-#    Capture the returned workloadAccessToken.
-WAT=$(aws bedrock-agentcore get-workload-access-token-for-jwt --profile agenticvault \
-  --workload-name workshop-workload --user-token "<user-jwt>" \
-  --query workloadAccessToken --output text)
+# In Python (inside the agent):
+# 1. WAT is auto-injected by Runtime into the request context:
+wat = context.request_headers['workloadaccesstoken']
 
-# 2. Use THAT workload access token to get the OBO-scoped downstream token.
-aws bedrock-agentcore get-resource-oauth2-token --profile agenticvault \
-  --resource-credential-provider-name workshop-obo-vault \
-  --oauth2-flow ON_BEHALF_OF_TOKEN_EXCHANGE --scopes "<scope>" \
-  --workload-identity-token "$WAT"
+# 2. Exchange WAT for OBO token:
+identity_client = IdentityClient("us-east-1")
+obo_response = identity_client.get_resource_oauth2_token(
+    resource_credential_provider_name="workshop-obo-vault",
+    oauth2_flow="ON_BEHALF_OF_TOKEN_EXCHANGE",
+    scopes=["kb:read"],
+    workload_identity_token=wat,  # REQUIRED — not auto-injected
+)
+obo_token = obo_response["accessToken"]
 ```
+
+> **Lesson (Aug 24):** `IdentityClient.get_resource_oauth2_token()` requires the
+> `workload_identity_token` parameter explicitly. The SDK does NOT auto-read it from
+> the runtime context. The `@requires_access_token` decorator does handle this
+> automatically, but conflicts with Strands' `@tool` decorator (exposes `access_token`
+> as a visible tool parameter). Use the manual `IdentityClient` approach for Strands.
 
 ### Grant-type choice
 
@@ -187,13 +203,17 @@ aws bedrock-agentcore get-resource-oauth2-token --profile agenticvault \
 
 ### How this reaches Vault
 
-Once the agent holds the AgentCore user-context JWT (token #1), it presents it to Vault
-**directly as the `X-Vault-Token`** against the OAuth resource-server profile — no Vault
-login round-trip. Vault validates against the AgentCore JWKS, checks the Agent Registry,
-reads the `authorization_details` claim, and vends short-lived dynamic secrets tied to the
-JWT lease. The `agentcore_obo` module (credential provider) and the `agentcore_identity`
-module (issuer + JWKS) are the two pieces that must be stood up and confirmed before this
-path works.
+Once the agent holds the OBO token, it presents it to Vault via `auth/jwt/login`
+(the GA JWT auth method). Vault validates the signature against the workshop JWKS,
+checks `bound_subject` against the user's `sub` claim, and issues a Vault token
+with the appropriate per-user policy. The agent then calls `aws/sts/bedrock-reader`
+with that Vault token to get scoped STS credentials.
+
+> **Design decision (Aug 24):** uses the GA **JWT auth method** (`auth/jwt/`), NOT the
+> beta OAuth Resource Server. The OAuth RS entity-alias lookup is broken in Vault 2.0.4
+> for pre-created aliases. The JWT auth method provides the same controls (JWKS
+> validation, bound_subject = allowlist, scoped policies) and is fully GA. See
+> `VAULT_HANDOFF.md` §1d.
 
 ---
 
@@ -280,7 +300,7 @@ returned `environmentVariables: null`. Runtime config must be set in code (we us
 
 1. **License logistics with Oscar** — confirm the Enterprise tier (must expose the Agent Registry), the license term (workshop delivery window + re-runs), and delivery mechanism (baked into deploy via a content-team-owned secret). Design assumes one license the content team owns, injected at deploy time.
 2. **Beta version pinning** — pin Vault Enterprise + AgentCore SDK versions and add the "Tested against" block before first delivery (see §7).
-3. **OIDC IdP choice** — Cognito is the leanest default for a vended-account audience; confirm before building UC2.
+3. ~~**OIDC IdP choice**~~ — RESOLVED (Aug 24): self-hosted mock OAuth server (`applications/oauth-mock-server/`). Issues user-delegated JWTs with RFC 8693 actor claim. No Cognito needed.
 4. **Vault reachability** — single Vault EC2/Fargate in the workshop VPC; confirm AgentCore Runtime → Vault network path (public endpoint vs VPC) during deploy design.
 5. **New repo name + location** — create the new repo (mirroring layout) before code work begins.
 

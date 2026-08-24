@@ -5,13 +5,17 @@ This is the **AgentCore edition** — a new-repo pivot of the EKS/IVIA workshop.
 ## Scope constraints (final, do not relitigate)
 
 - **No EKS.** Agents run on Amazon Bedrock AgentCore Runtime (managed, serverless). No cluster, node group, ServiceAccounts, NetworkPolicy, Karpenter, or ArgoCD.
-- **No IVIA / IBM Verify Identity Access, no OpenLDAP.** Identity is an external OIDC IdP (Cognito default) + AgentCore Identity as token issuer. No IBM licensing artifacts anywhere.
+- **No IVIA / IBM Verify Identity Access, no OpenLDAP.** Identity is an external OIDC IdP + AgentCore Identity as token issuer. No IBM licensing artifacts anywhere.
+- **No Cognito required.** The workshop uses a self-hosted mock OAuth server (`applications/oauth-mock-server/`) issuing user-delegated JWTs. Cognito/Okta/Entra are plug-in alternatives for production but not needed in the lab.
 - **Vault = self-hosted Vault Enterprise on AWS** (NOT HCP Vault Dedicated — hard constraint: run on AWS, not HashiCorp Cloud). Enterprise license provided by Oscar/content team, injected at deploy from a content-team-owned secret. Single persistent Vault server (EC2/Fargate), NOT an HA Raft cluster.
 - **Agent Registry (beta) stays in the core labs** — it is the reason the Enterprise license matters. Pin the Vault Enterprise version; isolate registry config in its own module.
 - **OBO = Vault as the OBO/JWT resource server**, `JWT_AUTHORIZATION_GRANT` (RFC 7523). AgentCore performs the exchange natively (one credential-provider config + two runtime calls). Do NOT hand-roll token brokering.
+- **Credential provider: use `authorizationServerMetadata` (NOT `discoveryUrl`)** when registering the OBO provider. The discovery-fetch approach fails with stale cached metadata. Inline `tokenEndpoint` + `authorizationEndpoint` directly.
+- **Execution role needs `secretsmanager:GetSecretValue`** on the AgentCore-managed client secret ARN. Without this, `GetResourceOauth2Token` returns AccessDeniedException.
+- **WAT access pattern:** `context.request_headers['workloadaccesstoken']` in the entrypoint. Pass explicitly to `IdentityClient.get_resource_oauth2_token(workload_identity_token=...)`. The SDK does NOT auto-inject it.
 - **Bedrock LLM = Amazon Nova Pro** via CRIS profile `us.amazon.nova-pro-v1:0` (NOT bare `amazon.nova-pro-v1:0`). **Embedding = Amazon Nova 2 Multimodal Embeddings** (`amazon.nova-2-multimodal-embeddings-v1:0`, us-east-1 only). KB components in us-east-1 via `provider.aws.kb`; everything else in `var.region`.
 - **Canonical region contract**: no `us-west-2`/`us-east-1` string literals outside the tfvars/deploy config. All modules interpolate `var.region` / `var.kb_region`.
-- **AWS CLI: always `--profile agentic`.**
+- **AWS CLI: always `--profile agenticvault`.**
 
 ## Version pinning (first-class requirement)
 

@@ -15,7 +15,7 @@ This is a **new repository**, a pivot of the EKS/IVIA reference workshop (`agent
 Three progressively-layered Strands agents on **AgentCore Runtime**, brokered through **HashiCorp Vault Enterprise**, with a single correlated audit trail:
 
 1. **Use Case 1** — Non-personalized read-only agent (agent workload identity, JIT credentials, reads Bedrock KB)
-2. **Use Case 2** — OAuth personalized read agent (user intent via OIDC + PKCE, carried on-behalf-of through AgentCore OBO)
+2. **Use Case 2** ✅ — Per-user authorization via OBO token exchange (user identity flows from JWT through AgentCore OBO to Vault; Vault enforces per-user policies). Proven Aug 24 2026.
 3. **Use Case 3** — Privileged write + single-plane Vault audit (user + agent + authorization + lease in one hash-chained log)
 
 ---
@@ -27,7 +27,7 @@ Three progressively-layered Strands agents on **AgentCore Runtime**, brokered th
 | Agent hosting | Amazon Bedrock AgentCore Runtime (Strands) — no EKS |
 | Agent identity / token issuer | AgentCore Identity (workload ARN + user-context JWT + JWKS) |
 | User delegation | AgentCore Secure Token Vault + native OBO token exchange |
-| Identity provider | External OIDC (Cognito default; Okta / Entra / IBM Verify pluggable) |
+| Identity provider | Self-hosted mock OAuth server (workshop); pluggable to Cognito / Okta / Entra for production |
 | Secrets / authorization | HashiCorp Vault Enterprise (self-hosted on AWS) — JWT auth, Agent Registry, dynamic secrets |
 | Audit | Single hash-chained Vault audit log |
 | Protected resources | RDS PostgreSQL, Bedrock KB, AWS IAM/STS |
@@ -44,9 +44,9 @@ Three progressively-layered Strands agents on **AgentCore Runtime**, brokered th
 
 ## Quick start
 
-**To recreate the proven phases (Stages 0-2) right now**, follow **`docs/RUNBOOK.md`** —
+**To recreate the proven phases (Stages 0-3 + UC2) right now**, follow **`docs/RUNBOOK.md`** —
 it has the exact, tested commands (AgentCore Node CLI, real paths, the gotchas and their
-fixes). Start there.
+fixes). Start there. UC2 (OBO + per-user Vault authorization) is fully proven.
 
 **To pick up Stage 3 (real Vault Enterprise)**, see **`docs/VAULT_HANDOFF.md`** — what
 Vault must provide and how the agent connects to it.
