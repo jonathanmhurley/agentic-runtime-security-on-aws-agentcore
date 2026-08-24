@@ -1,9 +1,14 @@
 """Mock OAuth token server — issues user-identity JWTs for UC2 OBO demos.
 
 A minimal OIDC-compliant token issuer that:
-- POST /token — accepts a username, returns a signed JWT (sub=<username>, act.sub=uc1-agent)
+- POST /token — accepts a username (direct invoke) or an OBO exchange (Function URL)
 - GET /.well-known/openid-configuration — returns OIDC discovery doc
-- GET /jwks.json — proxies to the GitHub-hosted JWKS (or returns it inline)
+- GET /jwks.json — proxies to the GitHub-hosted JWKS
+
+Supports two invocation modes:
+1. Direct lambda.invoke with {"username":"alice@example.com"} — returns a user JWT (Phase A test)
+2. Function URL POST /token with OAuth grant (JWT_AUTHORIZATION_GRANT or client_credentials)
+   — validates client credentials (CLIENT_SECRET_BASIC) then issues/exchanges token
 
 The Lambda uses the same RSA private key as the workshop's mint-jwt.py. In a real
 deployment, the key would be in Secrets Manager; for the workshop it's bundled.
@@ -12,14 +17,19 @@ This is NOT a production IdP — it's a workshop mock that lets us test AgentCor
 OBO exchange with a real token endpoint.
 """
 
+import base64
 import json
 import os
 import time
+import urllib.parse
+import urllib.request
 import uuid
 
-import jwt  # PyJWT
+import jwt as pyjwt  # PyJWT
 
-# The private key is bundled in the Lambda zip (workshop-only, not a real secret)
+# ---------------------------------------------------------------------------
+# Configuration (env vars set in deploy.sh)
+# ---------------------------------------------------------------------------
 PRIVATE_KEY_PATH = os.environ.get("PRIVATE_KEY_PATH", "private.pem")
 ISSUER = os.environ.get("ISSUER", "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin")
 JWKS_URL = os.environ.get("JWKS_URL", f"{ISSUER}/jwks.json")
@@ -27,6 +37,10 @@ AUDIENCE = os.environ.get("AUDIENCE", "vault-standin")
 KID = os.environ.get("KID", "stage2-key-1")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "900"))
 AGENT_SUB = os.environ.get("AGENT_SUB", "uc1-agent")
+
+# Client credentials — AgentCore presents these when calling /token
+CLIENT_ID = os.environ.get("CLIENT_ID", "workshop-obo-client")
+CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "workshop-obo-secret")
 
 # Load private key at cold start
 _private_key = None
@@ -40,19 +54,23 @@ def _get_key():
 
 
 def _discovery():
+    """OIDC discovery document. token_endpoint is self-referential (callers know our URL)."""
     return {
         "issuer": ISSUER,
         "jwks_uri": JWKS_URL,
-        "token_endpoint": "THIS_LAMBDA_URL/token",
+        "token_endpoint": os.environ.get("TOKEN_ENDPOINT", "THIS_LAMBDA_URL/token"),
         "response_types_supported": ["token"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
-        "grant_types_supported": ["client_credentials"],
-        "token_endpoint_auth_methods_supported": ["private_key_jwt"],
+        "grant_types_supported": [
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        ],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
     }
 
 
-def _issue_token(username: str) -> str:
+def _issue_token(username: str, scope: str = "kb:read") -> str:
     """Issue a user-delegated JWT (user sub + agent act.sub)."""
     now = int(time.time())
     claims = {
@@ -62,10 +80,10 @@ def _issue_token(username: str) -> str:
         "iat": now,
         "exp": now + TOKEN_TTL,
         "jti": str(uuid.uuid4()),
-        "scope": "kb:read",
+        "scope": scope,
         "act": {"sub": AGENT_SUB},  # RFC 8693 actor claim (the agent acting on behalf)
     }
-    return jwt.encode(claims, _get_key(), algorithm="RS256", headers={"kid": KID})
+    return pyjwt.encode(claims, _get_key(), algorithm="RS256", headers={"kid": KID})
 
 
 def _response(status, body):
@@ -76,40 +94,150 @@ def _response(status, body):
     }
 
 
+# ---------------------------------------------------------------------------
+# Client credential validation
+# ---------------------------------------------------------------------------
+
+def _validate_client_credentials(event, body):
+    """Extract and validate client_id/client_secret from Basic auth header or POST body.
+
+    Returns (True, None) on success or (False, error_response) on failure.
+    """
+    cid, csec = None, None
+
+    # Try Authorization: Basic header first
+    headers = event.get("headers", {}) or {}
+    auth_header = headers.get("authorization", "")
+    if auth_header.lower().startswith("basic "):
+        try:
+            decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+            cid, csec = decoded.split(":", 1)
+        except Exception:
+            return False, _response(401, {"error": "invalid_client", "error_description": "Malformed Basic auth header"})
+
+    # Fallback: client_id/client_secret in POST body
+    if not cid:
+        cid = body.get("client_id", "")
+        csec = body.get("client_secret", "")
+
+    if cid != CLIENT_ID or csec != CLIENT_SECRET:
+        return False, _response(401, {"error": "invalid_client", "error_description": "Invalid client credentials"})
+
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# Grant handlers
+# ---------------------------------------------------------------------------
+
+def _handle_jwt_bearer_grant(body):
+    """Handle grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer (RFC 7523).
+
+    AgentCore sends the inbound user JWT as the 'assertion' parameter.
+    We decode it (without verifying — we ARE the issuer / trust the caller post-client-auth),
+    extract the subject, and issue a new scoped token.
+    """
+    assertion = body.get("assertion", "")
+    if not assertion:
+        return _response(400, {"error": "invalid_request", "error_description": "Missing 'assertion' parameter"})
+
+    # Decode without verification — this is our own mock; in production the
+    # authorization server would verify the assertion JWT's signature.
+    try:
+        claims = pyjwt.decode(assertion, options={"verify_signature": False})
+    except Exception as e:
+        return _response(400, {"error": "invalid_grant", "error_description": f"Cannot decode assertion: {e}"})
+
+    # The subject of the assertion is the user identity
+    username = claims.get("sub", "anonymous")
+    scope = body.get("scope", claims.get("scope", "kb:read"))
+
+    token = _issue_token(username, scope=scope)
+    return _response(200, {
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": TOKEN_TTL,
+        "scope": scope,
+    })
+
+
+def _handle_client_credentials_grant(body):
+    """Handle grant_type=client_credentials — issue agent-only token (no user context)."""
+    scope = body.get("scope", "kb:read")
+    token = _issue_token(AGENT_SUB, scope=scope)
+    return _response(200, {
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": TOKEN_TTL,
+        "scope": scope,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Main handler
+# ---------------------------------------------------------------------------
+
 def handler(event, context):
-    # Direct lambda.invoke: event IS the payload
-    # Function URL / API GW: event has requestContext, path, httpMethod
+    # Direct lambda.invoke: event IS the payload (no path/requestContext)
     path = event.get("rawPath", event.get("path", ""))
     method = event.get("requestContext", {}).get("http", {}).get("method", event.get("httpMethod", "POST"))
 
-    # Also handle direct invoke (no path) — treat as token request
+    # --- Direct invoke (Phase A backward compat): {"username": "alice@example.com"} ---
     if not path and "username" in (event if isinstance(event, dict) else {}):
         username = event.get("username", "anonymous")
         token = _issue_token(username)
         return _response(200, {"access_token": token, "token_type": "Bearer", "expires_in": TOKEN_TTL, "sub": username})
 
+    # --- OIDC Discovery ---
     if path.endswith("/.well-known/openid-configuration"):
         return _response(200, _discovery())
 
+    # --- JWKS ---
     if path.endswith("/jwks.json"):
-        # Proxy to the GitHub JWKS (or return it inline if bundled)
-        import urllib.request
         try:
             with urllib.request.urlopen(JWKS_URL, timeout=5) as r:
                 return _response(200, json.loads(r.read()))
         except Exception as e:
             return _response(500, {"error": f"Failed to fetch JWKS: {e}"})
 
-    if path.endswith("/token") or method == "POST":
-        # Parse username from body or query
-        body = event.get("body", "{}")
-        if isinstance(body, str):
+    # --- Token endpoint (POST /token) ---
+    if path.endswith("/token") or (method == "POST" and path):
+        # Parse body (could be JSON or form-urlencoded)
+        raw_body = event.get("body", "") or ""
+        is_base64 = event.get("isBase64Encoded", False)
+        if is_base64 and raw_body:
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+
+        body = {}
+        if raw_body:
+            # Try JSON first
             try:
-                body = json.loads(body)
-            except json.JSONDecodeError:
-                body = {}
-        username = body.get("username", event.get("username", "anonymous"))
-        token = _issue_token(username)
-        return _response(200, {"access_token": token, "token_type": "Bearer", "expires_in": TOKEN_TTL, "sub": username})
+                body = json.loads(raw_body)
+            except (json.JSONDecodeError, TypeError):
+                # Try form-urlencoded
+                try:
+                    body = dict(urllib.parse.parse_qsl(raw_body))
+                except Exception:
+                    body = {}
+
+        # Validate client credentials
+        valid, err = _validate_client_credentials(event, body)
+        if not valid:
+            return err
+
+        # Route by grant_type
+        grant_type = body.get("grant_type", "")
+
+        if grant_type == "urn:ietf:params:oauth:grant-type:jwt-bearer":
+            return _handle_jwt_bearer_grant(body)
+        elif grant_type == "client_credentials":
+            return _handle_client_credentials_grant(body)
+        elif not grant_type:
+            # Legacy: username in body (Phase A compat via Function URL)
+            username = body.get("username", "anonymous")
+            token = _issue_token(username)
+            return _response(200, {"access_token": token, "token_type": "Bearer", "expires_in": TOKEN_TTL, "sub": username})
+        else:
+            return _response(400, {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"})
 
     return _response(404, {"error": f"Unknown path: {path}"})
