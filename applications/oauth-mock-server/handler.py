@@ -55,10 +55,12 @@ def _get_key():
 
 def _discovery():
     """OIDC discovery document. token_endpoint is self-referential (callers know our URL)."""
+    token_ep = os.environ.get("TOKEN_ENDPOINT", "THIS_LAMBDA_URL/token")
     return {
         "issuer": ISSUER,
         "jwks_uri": JWKS_URL,
-        "token_endpoint": os.environ.get("TOKEN_ENDPOINT", "THIS_LAMBDA_URL/token"),
+        "token_endpoint": token_ep,
+        "authorization_endpoint": token_ep,  # Required by AgentCore even for JWT bearer grant
         "response_types_supported": ["token"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],

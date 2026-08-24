@@ -15,7 +15,16 @@
       "codeLocation": "app/stage0hello/",
       "runtimeVersion": "PYTHON_3_14",
       "networkMode": "PUBLIC",
-      "protocol": "HTTP"
+      "protocol": "HTTP",
+      "authorizerType": "CUSTOM_JWT",
+      "authorizerConfiguration": {
+        "customJwtAuthorizer": {
+          "discoveryUrl": "https://ene0thyyh8.execute-api.us-east-1.amazonaws.com/.well-known/openid-configuration",
+          "allowedAudience": [
+            "vault-standin"
+          ]
+        }
+      }
     }
   ],
   "memories": [],
