@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Workshop bootstrap — pre-provisions CDK toolkit stack and resources needed
+  before attendees start. Runs as admin during account provisioning.
+
+Resources:
+  # CDK Bootstrap via a Custom Resource that invokes a Lambda
+  # This ensures CDKToolkit stack exists before attendees run `agentcore deploy`
+  CDKBootstrapFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: workshop-cdk-bootstrap
+      Runtime: python3.12
+      Timeout: 300
+      Handler: index.handler
+      Role: !GetAtt CDKBootstrapRole.Arn
+      Code:
+        ZipFile: |
+          import subprocess
+          import os
+          import cfnresponse
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+
+              try:
+                  account = context.invoked_function_arn.split(':')[4]
+                  region = os.environ['AWS_REGION']
+
+                  # Install CDK CLI
+                  subprocess.run(
+                      ['npx', '-y', 'aws-cdk@latest', 'bootstrap',
+                       f'aws://{account}/{region}',
+                       '--trust', account,
+                       '--cloudformation-execution-policies', 'arn:aws:iam::aws:policy/AdministratorAccess'],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                      timeout=240
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Message': 'CDK bootstrapped'})
+              except Exception as e:
+                  print(f'Error: {e}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  CDKBootstrapRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: workshop-cdk-bootstrap-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  CDKBootstrapTrigger:
+    Type: Custom::CDKBootstrap
+    Properties:
+      ServiceToken: !GetAtt CDKBootstrapFunction.Arn
+
+  # Bedrock AgentCore model access enablement is manual (console only),
+  # so we just ensure the IAM permissions are in place.
+
+Outputs:
+  CDKBootstrapStatus:
+    Value: !GetAtt CDKBootstrapTrigger.Message
+    Description: CDK bootstrap result
