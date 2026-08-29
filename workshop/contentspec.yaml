@@ -12,7 +12,6 @@ awsAccountConfig:
     - WorkshopStudio
   participantRole:
     managedPolicies:
-      - arn:aws:iam::aws:policy/ReadOnlyAccess
       - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
       - arn:aws:iam::aws:policy/AWSCloudShellFullAccess
       - arn:aws:iam::aws:policy/AWSLambda_FullAccess
