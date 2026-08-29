@@ -24,12 +24,24 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 echo "  $(uv --version)"
 
-# 3. PATH persistence for this session
-echo "[3/4] Updating PATH..."
+# 3. Vault CLI (best-effort — CloudShell home may be too small)
+echo "[3/5] Installing Vault CLI..."
+if ! command -v vault &>/dev/null; then
+  curl -fsSL https://releases.hashicorp.com/vault/1.18.4/vault_1.18.4_linux_amd64.zip -o /tmp/vault.zip 2>/dev/null
+  cd /tmp && unzip -oq vault.zip 2>/dev/null && mkdir -p /tmp/npm-global/bin && mv vault /tmp/npm-global/bin/ 2>/dev/null && cd - >/dev/null || true
+fi
+if command -v vault &>/dev/null; then
+  echo "  $(vault --version 2>/dev/null || echo 'installed but may not run — use curl for Vault API calls')"
+else
+  echo "  skipped (disk full) — use curl for Vault API calls"
+fi
+
+# 4. PATH persistence for this session
+echo "[4/5] Updating PATH..."
 export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"
 
-# 4. aws-targets.json for stage0hello
-echo "[4/4] Creating aws-targets.json..."
+# 5. aws-targets.json for stage0hello
+echo "[5/5] Creating aws-targets.json..."
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGION=us-east-1
 

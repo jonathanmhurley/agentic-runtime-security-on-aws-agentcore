@@ -1,4 +1,12 @@
-#!/usr/bin/env bash
+
+# Ensure Vault CLI is installed
+if ! command -v vault &>/dev/null; then
+  echo "[vault-dev] Installing Vault CLI (2.0.4+ent)..."
+  curl -fsSL https://releases.hashicorp.com/vault/1.18.4/vault_1.18.4_linux_amd64.zip -o /tmp/vault.zip 2>/dev/null
+  cd /tmp && unzip -oq vault.zip && mkdir -p /tmp/npm-global/bin && mv vault /tmp/npm-global/bin/ && cd - >/dev/null
+  echo "[vault-dev] Vault CLI: $(vault --version)"
+fi
+
 # deploy-vault-dev.sh — Launch a single EC2 instance running Vault Enterprise in dev mode.
 #
 # This is the fastest path to a running Vault Enterprise with the Agent Registry +

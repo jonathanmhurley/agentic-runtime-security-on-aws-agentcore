@@ -80,24 +80,49 @@ wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
 
 ## Step 4 — Deploy Vault Enterprise
 
+Before deploying, place your Vault Enterprise license file:
+
+```bash
+# Paste your .hclic license content into this file (gitignored):
+vi infrastructure/modules/vault_server/vault.hclic
+```
+
+Then deploy:
+
 ```bash
 cd ../../infrastructure/modules/vault_server
 bash deploy-vault-dev.sh
 ```
 
-Wait ~90 seconds for Vault to start, then configure JWT auth:
+Wait ~90 seconds for Vault to start, then set the Vault address:
 
 ```bash
-export VAULT_ADDR="http://$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=vault-workshop" "Name=instance-state-name,Values=running" \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1):8200"
-export VAULT_TOKEN=workshop-root-token
+VAULT_IP=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=vault-enterprise-dev" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1)
+export VAULT_ADDR="http://${VAULT_IP}:8200"
+export VAULT_TOKEN="workshop-root-token"
+echo "Vault: $VAULT_ADDR"
+```
 
-vault auth enable jwt
-vault write auth/jwt/config jwks_url="$JWKS_URL" default_role="uc1-agent"
-vault write auth/jwt/role/uc1-agent \
-  role_type=jwt bound_audiences=vault-standin bound_subject=uc1-agent \
-  user_claim=sub token_policies=uc1 token_ttl=15m
+Configure JWT auth (using `curl` — no Vault CLI required):
+
+```bash
+# Enable JWT auth method
+# Note: if you see "path is already in use at jwt/" — that's fine,
+# it means JWT auth was already enabled. Continue to the next command.
+curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+  "$VAULT_ADDR/v1/sys/auth/jwt" -d '{"type":"jwt"}'
+
+# Configure JWKS
+curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+  "$VAULT_ADDR/v1/auth/jwt/config" \
+  -d "{\"jwks_url\":\"$JWKS_URL\",\"default_role\":\"uc1-agent\"}"
+
+# Create the uc1-agent role
+curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+  "$VAULT_ADDR/v1/auth/jwt/role/uc1-agent" \
+  -d '{"role_type":"jwt","bound_audiences":["vault-standin"],"bound_subject":"uc1-agent","user_claim":"sub","token_policies":["uc1"],"token_ttl":"15m"}'
 ```
 
 See `docs/RUNBOOK.md` Stage 3 for the full Vault configuration commands.

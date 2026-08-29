@@ -25,7 +25,7 @@ The agent's identity is verified and access is brokered through **AgentCore Gate
 ### Try it
 
 ```bash
-cd applications/vault-standin
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/vault-standin
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
   --iss "<ISSUER>" --scopes kb:read --kid stage2-key-1 --ttl 900)"
 curl -s -X POST "<GATEWAY_URL>/mcp" \
