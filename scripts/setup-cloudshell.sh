@@ -24,6 +24,10 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 echo "  $(uv --version)"
 
+# 2b. PyJWT (used by mint-jwt.py for signing workshop tokens)
+pip3 install pyjwt --quiet 2>/dev/null
+echo "  pyjwt $(python3 -c 'import jwt; print(jwt.__version__)' 2>/dev/null || echo 'installed')"
+
 # 3. Vault CLI (best-effort — CloudShell home may be too small)
 echo "[3/5] Installing Vault CLI..."
 if ! command -v vault &>/dev/null; then

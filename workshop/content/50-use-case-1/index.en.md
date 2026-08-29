@@ -24,11 +24,25 @@ The agent's identity is verified and access is brokered through **AgentCore Gate
 
 ### Try it
 
+First, generate the workshop keypair (one-time) and install the JWT minting dependency:
+
 ```bash
 cd ~/agentic-runtime-security-on-aws-agentcore/applications/vault-standin
+bash tools/keygen.sh
+pip3 install pyjwt
+```
+
+Then mint a JWT and call the Gateway:
+
+```bash
+ISSUER="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin"
+GATEWAY_URL=$(aws bedrock-agentcore-control list-gateways --region us-east-1 \
+  --query "items[?contains(name,'workshop-gateway')].{url:gatewayUrl}|[0].url" --output text)
+
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
-  --iss "<ISSUER>" --scopes kb:read --kid stage2-key-1 --ttl 900)"
-curl -s -X POST "<GATEWAY_URL>/mcp" \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+
+curl -s -X POST "${GATEWAY_URL}/mcp" \
   -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"kb-retrieve___retrieve_from_kb","arguments":{"query":"What is RapidLane same-day SLA?"}},"id":1}'
