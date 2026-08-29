@@ -13,12 +13,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "${GATEWAY_ID:-}" ]; then
   STATE_FILE="$HERE/../stage0hello/agentcore/deployed-state.json"
   if [ -f "$STATE_FILE" ]; then
-    GATEWAY_ID=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print([g['gatewayId'] for g in d.get('gateways',{}).values()][0])" 2>/dev/null || echo "")
+    GATEWAY_ID=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print([g['gatewayId'] for g in d.get('gateways',{}).values()][0])" 2>/dev/null || true)
   fi
-  if [ -z "$GATEWAY_ID" ]; then
+  if [ -z "${GATEWAY_ID:-}" ]; then
     GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query "gateways[?contains(gatewayName,'workshop-gateway')].gatewayId | [0]" --output text 2>/dev/null || echo "")
   fi
-  [ -z "$GATEWAY_ID" ] && { echo "[gateway-kb-target] ERROR: Could not discover Gateway ID. Set GATEWAY_ID env var."; exit 1; }
+  [ -z "${GATEWAY_ID:-}" ] && { echo "[gateway-kb-target] ERROR: Could not discover Gateway ID. Set GATEWAY_ID env var."; exit 1; }
 fi
 
 TARGET_NAME="kb-retrieve"
