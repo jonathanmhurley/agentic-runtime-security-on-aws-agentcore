@@ -2,7 +2,7 @@
 
 **Target-architecture design doc**
 
-Status: draft for review · Author: design pass with Jonathan Hurley · Date: 2026-08-07
+Status: proven (UC1-3 validated Aug 2026) · Author: Jonathan Hurley · Date: 2026-08-07 (last updated 2026-08-29)
 
 ---
 
@@ -23,10 +23,10 @@ Guiding principles for the pivot:
 | # | Decision | Rationale |
 | --- | --- | --- |
 | 1 | **Agents run on Bedrock AgentCore Runtime** (managed, serverless). No EKS. | Removes the self-managed cluster, ServiceAccounts, NetworkPolicy, node groups. |
-| 2 | **AgentCore Identity** is the token issuer + JWKS endpoint Vault trusts. | Replaces Vault Kubernetes auth + IVIA as issuer. |
+| 2 | **AgentCore Identity** facilitates the OBO token exchange; the workshop’s JWT issuer is a self-hosted mock OAuth server with GitHub-hosted JWKS trusted by both the Runtime authorizer and Vault. | Replaces Vault Kubernetes auth + IVIA as issuer. |
 | 3 | **AgentCore Secure Token Vault + native OBO** carries user identity on-behalf-of. | Replaces IVIA/CIBA out-of-band consent + token storage. Managed by AgentCore. |
 | 4 | **Vault: self-hosted Vault Enterprise on AWS**, license provided by Oscar. | Hard constraint: run on AWS, not HashiCorp Cloud. Enterprise required for the Agent Registry. |
-| 5 | **Agent Registry (beta) stays in the core labs.** | It is already central to the current UC2/UC3 flow (Vault 2.0.3-ent). This is the reason the Enterprise license matters. |
+| 5 | **Agent Registry (beta) stays in the core labs.** | Not used in the proven flow. The GA JWT auth method with `bound_subject` provides equivalent allowlist functionality. Enterprise license kept for future exploration. |
 | 6 | **OBO target = Vault as the OBO/JWT resource server** (`JWT_AUTHORIZATION_GRANT`). | Shortest repeatable path; one IdP, one downstream. Matches diagram steps 2–5. |
 | 7 | **Agent framework = Strands.** | Matches the current workshop; AgentCore Runtime is framework-agnostic so this is a low-risk default. |
 | 8 | **New repo, mirroring existing layout.** | No collisions; reviewers familiar with the EKS repo can navigate this one. |
@@ -60,11 +60,11 @@ Grounded in the current repo (`/Users/hurleyjm/Developer/agentic-runtime-securit
 | Vault config: JWT auth, secrets engines, policies | `infrastructure/modules/vault_config/` | JWT auth method now points at AgentCore JWKS. Dynamic secrets, PKI, KV unchanged. |
 | Vault IAM (Vault→Bedrock STS assume, KMS unseal) | `infrastructure/modules/vault_iam/` | Unchanged in shape. |
 | Agent Registry | Vault Enterprise native (Phase 9) | Kept in core labs. Beta — pinned (see §7). |
-| Audit (CMK, log groups, Athena) | `infrastructure/modules/audit/` | Collapses from 3-plane to single Vault audit stream (see §3.4). |
-| RDS PostgreSQL + pgaudit | `infrastructure/modules/rds/` | Still the protected data resource for the DB dynamic-secrets demo. |
+| Audit (CMK, log groups, Athena) | `infrastructure/modules/audit/` | **Proven as Vault file audit device** (`/var/log/vault-audit.log`). No Athena or CMK needed. Single Vault audit stream (see §3.4). |
+| RDS PostgreSQL + pgaudit | `infrastructure/modules/rds/` | **FUTURE STATE / not built.** Workshop uses Bedrock KB as the protected data resource. |
 | Bedrock KB | `applications/stage1-kb/` (managed KB) | UC1 read target. **Changed to a fully-managed Bedrock KB** (managed embeddings) — replaces the EKS repo's self-managed AOSS + vector index. 3 API calls vs. a Terraform module. See §3.5. |
 | Workshop content scaffold | `workshop/content/**` | Section skeleton reused; narrative rewritten per §5. |
-| Deploy orchestration pattern | `infrastructure/scripts/deploy-workshop.sh` | Tiering pattern reused; tiers redefined (see §6). |
+| Deploy orchestration pattern | `infrastructure/scripts/deploy-workshop.sh` | **Aspirational.** Proven path uses manual scripts: `deploy-vault-dev.sh`, per-app `deploy.sh`, and `agentcore deploy`. See RUNBOOK.md. |
 
 ### 3.3 Changes (new AgentCore plane)
 
@@ -224,8 +224,8 @@ The current workshop is built around three progressively-layered use cases. They
 | Use case | Current (EKS/IVIA) | AgentCore edition |
 | --- | --- | --- |
 | **UC1** — workload identity, JIT creds | Non-personalized read-only Strands agent on EKS; Vault k8s auth; reads Bedrock KB | Strands agent on AgentCore Runtime; agent workload identity (ARN); Vault JWT auth via JWKS; reads Bedrock KB. **No user context yet.** |
-| **UC2** — user intent (OAuth) | Authorization Code + PKCE via IVIA; personalized read | OIDC login (Cognist/Okta/etc.) + PKCE; **AgentCore OBO** carries user identity; Vault authorizes per-user; personalized read from RDS. |
-| **UC3** — privileged write + audit | CIBA mobile-push approval; three-plane Athena audit correlation | OBO-scoped privileged write; **single hash-chained Vault audit** answering user+agent+authz+lease. CIBA replaced by OBO consent. |
+| **UC2** — user intent (OAuth) | Authorization Code + PKCE via IVIA; personalized read | Bearer token from mock OAuth server; **AgentCore OBO** carries user identity; Vault authorizes per-user; personalized read from **Bedrock KB** with Vault-vended STS creds. **PROVEN Aug 24 2026.** |
+| **UC3** — audit inspection | CIBA mobile-push approval; three-plane Athena audit correlation | OBO-scoped read; **single hash-chained Vault audit** answering user+agent+authz+lease. Complete attribution from a single log stream. **PROVEN Aug 28 2026.** |
 
 Section skeleton (reuse the `workshop/content/NN-section/` numbering):
 
@@ -256,7 +256,7 @@ The Agent Registry is **beta** in Vault Enterprise, and the AgentCore OBO API su
 **Pin explicitly**
 
 - Vault Enterprise version pinned as a Terraform variable/constant (e.g. `vault_version = "1.x.y+ent"` — pin to the exact Enterprise build that ships the Agent Registry the labs use). No `latest`, no floating tags.
-- AgentCore SDK / `bedrock-agentcore` package version pinned in `requirements.txt`. The OBO calls (`get-workload-access-token-for-jwt`, `get-resource-oauth2-token`) and the Agent Registry are both moving surfaces.
+- AgentCore SDK / `bedrock-agentcore` package version pinned in `requirements.txt`. The OBO calls (`get_resource_oauth2_token` via IdentityClient) are moving surfaces. Note: CLI equivalents exist but the proven agent code uses the Python SDK directly with explicit `workload_identity_token` parameter.
 
 **Call out the beta risk where it lives**
 
@@ -278,7 +278,8 @@ The Agent Registry is **beta** in Vault Enterprise, and the AgentCore OBO API su
 | Bedrock model | `us.amazon.nova-pro-v1:0` | Nova Pro via CRIS (bare id rejected for on-demand). |
 | Account / region | `<ACCOUNT_ID>` / `us-east-1` | agenticvault account. |
 | Stage 0 validated | 2026-08-08 | Deploy + workload identity + invoke on Nova Pro. |
-| Vault Enterprise | _TBD_ | Pin the exact `+ent` build once Oscar provides the license. |
+| AgentCore CLI | `0.26.0` (also validated `0.27.1` Aug 24) | Node.js CLI, not the Python starter toolkit. |
+| Vault Enterprise | `2.0.4+ent` | Deployed on EC2 (t3.micro, dev mode). License expires 2032-10-22. |
 
 Stage 0 (AgentCore hello-world) is proven against this baseline. Runtime ARN:
 `arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/stage0hello_stage0hello-PglC2wCzrZ`.
@@ -301,8 +302,8 @@ returned `environmentVariables: null`. Runtime config must be set in code (we us
 1. **License logistics with Oscar** — confirm the Enterprise tier (must expose the Agent Registry), the license term (workshop delivery window + re-runs), and delivery mechanism (baked into deploy via a content-team-owned secret). Design assumes one license the content team owns, injected at deploy time.
 2. **Beta version pinning** — pin Vault Enterprise + AgentCore SDK versions and add the "Tested against" block before first delivery (see §7).
 3. ~~**OIDC IdP choice**~~ — RESOLVED (Aug 24): self-hosted mock OAuth server (`applications/oauth-mock-server/`). Issues user-delegated JWTs with RFC 8693 actor claim. No Cognito needed.
-4. **Vault reachability** — single Vault EC2/Fargate in the workshop VPC; confirm AgentCore Runtime → Vault network path (public endpoint vs VPC) during deploy design.
-5. **New repo name + location** — create the new repo (mirroring layout) before code work begins.
+4. ~~**Vault reachability**~~ — RESOLVED (Aug 28): AgentCore Runtime (PUBLIC network mode) reaches Vault via public IP. Requires VPC BPA exclusion + SG port 8200 open.
+5. ~~**New repo name + location**~~ — RESOLVED: `github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore` (public).
 
 ---
 

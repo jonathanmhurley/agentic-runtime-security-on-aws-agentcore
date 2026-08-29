@@ -13,6 +13,8 @@ This is the **AgentCore edition** — a new-repo pivot of the EKS/IVIA workshop.
 - **Credential provider: use `authorizationServerMetadata` (NOT `discoveryUrl`)** when registering the OBO provider. The discovery-fetch approach fails with stale cached metadata. Inline `tokenEndpoint` + `authorizationEndpoint` directly.
 - **Execution role needs `secretsmanager:GetSecretValue`** on the AgentCore-managed client secret ARN. Without this, `GetResourceOauth2Token` returns AccessDeniedException.
 - **WAT access pattern:** `context.request_headers['workloadaccesstoken']` in the entrypoint. Pass explicitly to `IdentityClient.get_resource_oauth2_token(workload_identity_token=...)`. The SDK does NOT auto-inject it.
+- **JWT authorizer must be in `agentcore.json`**, not just applied via `update-agent-runtime` CLI. CDK deploy (`agentcore deploy`) overwrites the runtime config from `agentcore.json` on every deploy.
+- **Vault AWS STS roles require `ttl >= 15m`** (AWS STS minimum DurationSeconds is 900). `vault write aws/sts/<role> ttl=5m` fails with an InvalidParameter error.
 - **Bedrock LLM = Amazon Nova Pro** via CRIS profile `us.amazon.nova-pro-v1:0` (NOT bare `amazon.nova-pro-v1:0`). **Embedding = Amazon Nova 2 Multimodal Embeddings** (`amazon.nova-2-multimodal-embeddings-v1:0`, us-east-1 only). KB components in us-east-1 via `provider.aws.kb`; everything else in `var.region`.
 - **Canonical region contract**: no `us-west-2`/`us-east-1` string literals outside the tfvars/deploy config. All modules interpolate `var.region` / `var.kb_region`.
 - **AWS CLI: always `--profile agenticvault`.**
@@ -23,11 +25,12 @@ This is the **AgentCore edition** — a new-repo pivot of the EKS/IVIA workshop.
 - Pin `bedrock-agentcore` SDK version in every `applications/*/requirements.txt`.
 - Maintain a single **"Tested against"** block (Vault Enterprise version · AgentCore SDK · region · date) in `docs/DESIGN.md`.
 - Label Vault capabilities GA vs beta: GA = JWT auth, dynamic secrets, audit; beta = Agent Registry.
+- **Tested CLI versions:** AgentCore CLI 0.27.1 (`@aws/agentcore`), Vault CLI 2.0.4+ent.
 
 ## Code conventions
 
 - **Every script MUST be idempotent and safe to re-run end-to-end — no exceptions.** Applies especially to `deploy-workshop.sh`.
-- Atomic commits per logical change; explicit `git add <path>` (never `git add .` / `-A`).
+- Atomic commits per logical change; prefer explicit `git add <path>` over `git add -A`.
 - Terraform fmt clean; every module carries a README.md as authoritative module documentation.
 
 ## Don't

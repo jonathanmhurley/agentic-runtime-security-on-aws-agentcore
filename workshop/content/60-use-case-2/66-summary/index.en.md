@@ -14,7 +14,7 @@ authenticated user's identity.
 
 | Property | How it's enforced |
 |----------|-------------------|
-| **No standing credentials** | Agent holds zero AWS credentials for KB access. Every query requires a fresh Vault exchange. |
+| **No standing credentials** | Agent holds zero AWS credentials for KB access via the Vault path. Every query requires a fresh Vault exchange. |
 | **Per-user scoping** | Vault `bound_subject` ties each role to exactly one user identity. Different users get different policies. |
 | **Short-lived credentials** | Vault vends STS tokens with 15-minute TTL. Leaked creds expire quickly. |
 | **Auditable identity chain** | The STS session name contains the user email (`vault-jwt-alice@example.com`), visible in CloudTrail. |
@@ -25,8 +25,8 @@ authenticated user's identity.
 
 - **OBJ-1** (verifiable agent identity): JWT inbound auth validates the agent caller;
   OBO exchange stamps user identity into downstream tokens.
-- **OBJ-2** (no standing privileges): Agent can't reach the KB without going through
-  Vault first. No IAM policy on the execution role grants `bedrock:Retrieve`.
+- **OBJ-2** (no standing privileges via Vault path): The agent can only reach the KB
+  through Vault-vended STS credentials. Vault policy controls who gets creds.
 - **OBJ-3** (per-user authorization): Vault policies (`alice-kb` vs `bob-kb`) enforce
   who can read what. This is the first UC where access varies by caller.
 - **OBJ-5** (audit trail): User identity is embedded in the STS session name and
@@ -35,36 +35,37 @@ authenticated user's identity.
 ## Architecture diagram
 
 ```text
-┌─────────────┐     JWT      ┌──────────────────┐     WAT      ┌────────────────┐
-│  End User   │─────────────>│  AgentCore       │─────────────>│  Agent Code    │
-│ (alice/bob) │              │  Runtime         │              │  (app.py)      │
-└─────────────┘              └──────────────────┘              └───────┬────────┘
-                                                                       │
-                                                          OBO Exchange │ (1)
-                                                                       ▼
-                                                               ┌───────────────┐
-                                                               │ Token Server  │
-                                                               │ (mock Lambda) │
-                                                               └───────┬───────┘
-                                                                       │
-                                                          OBO Token     │ (2)
-                                                                       ▼
-                                                               ┌───────────────┐
-                                                               │    Vault      │
-                                                               │  (JWT auth)   │
-                                                               └───────┬───────┘
-                                                                       │
-                                                          STS Creds    │ (3)
-                                                                       ▼
-                                                               ┌───────────────┐
-                                                               │  Bedrock KB   │
-                                                               │  (Meridian)   │
-                                                               └───────────────┘
+                         JWT                     WAT
+  End User  ──────────>  AgentCore  ──────────>  Agent Code
+  (alice/bob)            Runtime                 (main.py)
+                                                     │
+                                        OBO Exchange │ (1)
+                                                     ▼
+                                             ┌───────────────┐
+                                             │ Token Server  │
+                                             │ (mock Lambda) │
+                                             └───────┬───────┘
+                                                     │
+                                        OBO Token    │ (2)
+                                                     ▼
+                                             ┌───────────────┐
+                                             │  Vault        │
+                                             │  auth/jwt/    │
+                                             └───────┬───────┘
+                                                     │
+                                        STS Creds    │ (3)
+                                                     ▼
+                                             ┌───────────────┐
+                                             │  Bedrock KB   │
+                                             │  (Meridian)   │
+                                             └───────────────┘
 ```
+
+1. Agent exchanges WAT for user-scoped OBO token via `GetResourceOauth2Token`
+2. Agent presents OBO token to `auth/jwt/login`; Vault applies per-user policy
+3. Vault vends 15m STS credentials; agent queries KB with those creds
 
 ## What's next
 
-UC3 adds **write operations with dynamic database credentials**. Same Vault pattern,
-but instead of read-only STS for a KB, Vault vends short-lived database credentials
-scoped to a specific schema. The agent can mutate data on behalf of the user, with
-full audit lineage and automatic credential rotation.
+UC3 inspects the **Vault audit log** to show that every step of this chain is recorded
+with full user attribution. No multi-plane log correlation needed.

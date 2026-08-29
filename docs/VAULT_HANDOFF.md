@@ -24,7 +24,7 @@ then `terraform apply` that module against it. The module provisions:
 | `vault_database_secret_backend_role.uc1_readonly` | SELECT-only Postgres creds, TTL 900s | STS AssumeRole into a scoped role |
 | `vault_aws_secret_backend_role.bedrock_reader` | `aws/sts/bedrock-reader` scoped Bedrock STS | the vended `bedrock:Retrieve` role |
 | `vault_policy.uc1` | `read` on `database/creds/uc1-readonly` + `aws/sts/bedrock-reader` | broker's implicit scope |
-| `vault_agent_registration.uc1` | Registers `uc1-agent` as an approved identity — **unregistered agents blocked** (BETA, Enterprise) | broker allowlist (`ALLOWED_SUBS`) |
+| `vault_agent_registration.uc1` | Registers `uc1-agent` as an approved identity (BETA, Enterprise). In the proven flow, the GA JWT auth method's `bound_subject` parameter serves as the functional allowlist instead. | broker allowlist (`ALLOWED_SUBS`) |
 
 **Provider pin:** `hashicorp/vault >= 5.10.1, < 6.0.0` — the first release exposing
 `vault_oauth_resource_server_config_profile` + `vault_agent_registration`. Do not float.
@@ -65,7 +65,7 @@ relevant — that swap is a config change in `vault_config`, not a rebuild.
 ## 1c. Phase C COMPLETE — Vault config applied (Aug 14, 2026)
 
 All Vault Enterprise resources are configured on a dev-mode instance (2.0.4+ent):
-- OAuth resource server profile `agentcore` trusting our GitHub-hosted JWKS ✓
+- OAuth resource server profile `agentcore` trusting our GitHub-hosted JWKS ✓ (configured, but entity-alias lookup broken in 2.0.4 — not used for token validation. GA JWT auth `auth/jwt/` is the working path.)
 - Agent Registry: `uc1-agent` registered (entity `f38e8fd6-...`, reg ID `9a57ce93-...`) ✓
 - AWS secrets engine + `bedrock-reader` role ✓
 - `uc1` policy + identity entity ✓
@@ -128,7 +128,6 @@ These are the things Stage 3 needs that Stages 0-2 did not:
    - `agentcore_issuer` — the AgentCore Identity issuer (`iss` claim)
    - `agentcore_jwks_url` — the AgentCore Identity JWKS endpoint Vault fetches keys from
    - `agentcore_audiences` — the agent workload audience(s)
-   - `rds_endpoint`, `rds_db_name`, `rds_master_username`, `rds_master_user_secret_arn`
    - `bedrock_reader_role_arn` — the IAM role `aws/sts/bedrock-reader` assumes
 
    > **RESOLVED (Phase A):** the issuer/JWKS values are confirmed — see §1b above. The local Stage 2
@@ -142,21 +141,20 @@ These are the things Stage 3 needs that Stages 0-2 did not:
 
 ## 3. How the agent connects to Vault (what changes vs. Stage 2)
 
-Stage 2's agent tool (`applications/stage0hello/app/stage0hello/main.py`,
-`retrieve_from_kb_via_broker` + `_broker_vend`) does: JWT in -> get scoped creds -> use
-them for `bedrock:Retrieve`. For Stage 3, only `_broker_vend` changes — swap the
-`lambda.invoke` call for a Vault call:
+The proven UC2 agent tool is `retrieve_from_kb_as_user` in
+`applications/stage0hello/app/stage0hello/main.py`. It performs the full chain using
+`urllib.request` for direct HTTP calls to Vault:
 
-- **Vault presents the JWT directly as the token.** Per `vault_config`, the AgentCore
-  JWT is sent as the `X-Vault-Token` header against the OAuth resource-server profile —
-  there is no separate Vault login. So the agent reads a Vault credential path
-  (`database/creds/uc1-readonly` or `aws/sts/bedrock-reader`) with the JWT as the token.
-- The `get_scoped_credentials(jwt)` return shape (`access_key_id`, `secret_access_key`,
-  `session_token`, ...) stays the same, so the KB-read code after it is unchanged.
+1. OBO exchange via `IdentityClient.get_resource_oauth2_token()` to get a user-scoped JWT
+2. `POST` to `auth/jwt/login` with `role` + `jwt` parameters (GA JWT auth method)
+3. Vault returns a scoped token with per-user policies
+4. `POST` to `aws/sts/bedrock-reader` with the Vault token to get STS creds
+5. Use the STS creds to call `bedrock:Retrieve` on the KB
 
-The reference client `applications/vault-standin/broker_client.py` documents this seam:
-"In Stage 3 this same method points at Vault's OAuth resource server instead of the
-broker Lambda — the agent tool code does not change."
+> **Note:** The original design described presenting the JWT directly as `X-Vault-Token`
+> against the OAuth resource-server profile (no login round-trip). This is the beta path
+> and is broken in Vault 2.0.4 (entity-alias lookup failure). The GA JWT auth method
+> (`auth/jwt/login`) adds one round-trip but is fully supported and auto-creates entities.
 
 > **Transport caution (learned in Stage 2):** if the Vault endpoint is plain HTTPS, the
 > agent can call it directly with `hvac`/`urllib`. If for any reason you route through an

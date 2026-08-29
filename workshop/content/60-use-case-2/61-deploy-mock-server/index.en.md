@@ -17,7 +17,7 @@ The mock server:
 - Validates basic auth credentials (client ID + secret)
 - Copies the `sub` claim from the inbound assertion into the new token
 - Signs the output token with a workshop RSA key
-- Publishes JWKS at `/.well-known/jwks.json` so Vault can validate downstream
+- Serves JWKS at `/jwks.json` (proxied from the GitHub-hosted workshop JWKS)
 
 ## Deploy
 
@@ -34,9 +34,10 @@ export FUNCTION_URL="<FUNCTION_URL>"
 ```
 
 {{% notice note %}}
-If you're working in an internal Amazon account with org SCPs blocking
-`lambda:CreateFunctionUrlConfig`, use `deploy-dev.sh` instead. It places an API
-Gateway in front of the Lambda and prints the equivalent base URL.
+If your account has org SCPs that block unauthenticated Lambda Function URL
+invocations (common on internal Amazon accounts), use `deploy-dev.sh` instead.
+It places an API Gateway HTTP API in front of the Lambda and prints the equivalent
+base URL.
 {{% /notice %}}
 
 ## Verify
@@ -49,7 +50,7 @@ Expected output includes `token_endpoint`, `jwks_uri`, and `authorization_endpoi
 all pointing at your Function URL.
 
 ```bash
-curl -s "$FUNCTION_URL/.well-known/jwks.json" | python3 -m json.tool
+curl -s "$FUNCTION_URL/jwks.json" | python3 -m json.tool
 ```
 
 Confirm you see at least one RSA key with `use: sig`.

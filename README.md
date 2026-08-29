@@ -14,9 +14,9 @@ This is a **new repository**, a pivot of the EKS/IVIA reference workshop (`agent
 
 Three progressively-layered Strands agents on **AgentCore Runtime**, brokered through **HashiCorp Vault Enterprise**, with a single correlated audit trail:
 
-1. **Use Case 1** — Non-personalized read-only agent (agent workload identity, JIT credentials, reads Bedrock KB)
+1. **Use Case 1** ✅ — Non-personalized read-only agent (agent workload identity, JIT credentials, reads Bedrock KB). Proven Aug 8-23 2026.
 2. **Use Case 2** ✅ — Per-user authorization via OBO token exchange (user identity flows from JWT through AgentCore OBO to Vault; Vault enforces per-user policies). Proven Aug 24 2026.
-3. **Use Case 3** — Privileged write + single-plane Vault audit (user + agent + authorization + lease in one hash-chained log)
+3. **Use Case 3** ✅ — Single-plane Vault audit (user + agent + authorization + lease in one hash-chained log). Proven Aug 28 2026.
 
 ---
 
@@ -28,9 +28,9 @@ Three progressively-layered Strands agents on **AgentCore Runtime**, brokered th
 | Agent identity / token issuer | AgentCore Identity (workload ARN + user-context JWT + JWKS) |
 | User delegation | AgentCore Secure Token Vault + native OBO token exchange |
 | Identity provider | Self-hosted mock OAuth server (workshop); pluggable to Cognito / Okta / Entra for production |
-| Secrets / authorization | HashiCorp Vault Enterprise (self-hosted on AWS) — JWT auth, Agent Registry, dynamic secrets |
+| Secrets / authorization | HashiCorp Vault Enterprise (self-hosted on AWS) — GA JWT auth, dynamic secrets. Agent Registry (beta, UC1 only). |
 | Audit | Single hash-chained Vault audit log |
-| Protected resources | RDS PostgreSQL, Bedrock KB, AWS IAM/STS |
+| Protected resources | Bedrock Knowledge Base, AWS IAM/STS |
 
 ---
 
@@ -44,9 +44,9 @@ Three progressively-layered Strands agents on **AgentCore Runtime**, brokered th
 
 ## Quick start
 
-**To recreate the proven phases (Stages 0-3 + UC2) right now**, follow **`docs/RUNBOOK.md`** —
+**To recreate the proven phases (Stages 0-3 + UC2 + UC3) right now**, follow **`docs/RUNBOOK.md`** —
 it has the exact, tested commands (AgentCore Node CLI, real paths, the gotchas and their
-fixes). Start there. UC2 (OBO + per-user Vault authorization) is fully proven.
+fixes). Start there. All three use cases are fully proven.
 
 **To pick up Stage 3 (real Vault Enterprise)**, see **`docs/VAULT_HANDOFF.md`** — what
 Vault must provide and how the agent connects to it.
@@ -69,4 +69,4 @@ Proven work used the AgentCore Node CLI (`agentcore create/deploy/invoke`) with
 
 ## Version pinning (read before you deploy)
 
-The Vault **Agent Registry is beta** and the AgentCore OBO API surface is still moving. This workshop is validated only against pinned versions. See the **"Tested against"** block in `docs/DESIGN.md` §7 and the version constants in `infrastructure/variables.tf` / `applications/*/requirements.txt`. Do not float to `latest`.
+The Vault **Agent Registry is beta** and the AgentCore OBO API surface is still moving. This workshop is validated only against pinned versions (AgentCore CLI 0.27.1, Vault Enterprise 2.0.4+ent, bedrock-agentcore SDK as bundled in the deploy zip). See the **"Tested against"** block in `docs/DESIGN.md` §7 and the version constants in `infrastructure/variables.tf` / `applications/*/requirements.txt`. Do not float to `latest`.
