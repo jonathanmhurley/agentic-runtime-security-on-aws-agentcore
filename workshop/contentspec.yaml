@@ -10,8 +10,6 @@ params:
 awsAccountConfig:
   accountSources:
     - WorkshopStudio
-  bootstrapCfn:
-    templateLocation: assets/cfn/bootstrap.yaml
   participantRole:
     managedPolicies:
       - arn:aws:iam::aws:policy/ReadOnlyAccess
