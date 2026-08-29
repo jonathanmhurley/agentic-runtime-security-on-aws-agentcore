@@ -61,7 +61,7 @@ Deploy the updated config:
 
 ```bash
 cd applications/stage0hello
-AWS_PROFILE=agenticvault agentcore deploy
+AWS_PROFILE=agenticvault agentcore deploy --yes
 ```
 
 ## What happens at request time

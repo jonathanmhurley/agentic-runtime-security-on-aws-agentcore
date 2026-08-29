@@ -137,5 +137,5 @@ def retrieve_from_kb_as_user(query: str) -> list:
 
 ```bash
 cd applications/stage0hello
-AWS_PROFILE=agenticvault agentcore deploy
+AWS_PROFILE=agenticvault agentcore deploy --yes
 ```

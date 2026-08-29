@@ -21,7 +21,7 @@ Three components that form the foundation for the workshop's security demonstrat
 
 ```bash
 cd applications/stage0hello
-agentcore deploy
+agentcore deploy --yes
 agentcore status    # expect: Runtime READY
 agentcore invoke "Hello, confirm you are running"
 ```
@@ -49,7 +49,7 @@ agentcore add gateway \
   --discovery-url "<OIDC_DISCOVERY_URL>" \
   --allowed-audience vault-standin \
   --runtimes stage0hello
-agentcore deploy
+agentcore deploy --yes
 
 cd ../gateway-kb-target
 bash deploy.sh

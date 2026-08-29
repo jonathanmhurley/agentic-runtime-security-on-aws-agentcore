@@ -12,14 +12,10 @@ awsAccountConfig:
     - WorkshopStudio
   participantRole:
     managedPolicies:
+      - arn:aws:iam::aws:policy/PowerUserAccess
+      - arn:aws:iam::aws:policy/IAMFullAccess
       - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
       - arn:aws:iam::aws:policy/AWSCloudShellFullAccess
-      - arn:aws:iam::aws:policy/AWSLambda_FullAccess
-      - arn:aws:iam::aws:policy/IAMFullAccess
-      - arn:aws:iam::aws:policy/AmazonEC2FullAccess
-      - arn:aws:iam::aws:policy/AmazonS3FullAccess
-      - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
-      - arn:aws:iam::aws:policy/AmazonSSMFullAccess
   regionConfiguration:
     minAccessibleRegions: 1
     maxAccessibleRegions: 1
