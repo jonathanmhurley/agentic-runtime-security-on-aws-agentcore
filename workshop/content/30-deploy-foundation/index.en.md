@@ -26,6 +26,10 @@ agentcore status    # expect: Runtime READY
 agentcore invoke "Hello, confirm you are running"
 ```
 
+> **First deploy note:** The runtime takes ~2 minutes after deploy to reach `READY`.
+> If `agentcore status` or `agentcore invoke` fails immediately after deploy, wait
+> a couple of minutes and retry.
+
 The agent deploys via CDK (CodeZip), runs on Nova Pro (`us.amazon.nova-pro-v1:0`), and
 has a workload identity (ARN visible in `agentcore status`).
 
