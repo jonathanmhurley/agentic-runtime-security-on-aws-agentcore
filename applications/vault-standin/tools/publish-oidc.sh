@@ -4,16 +4,16 @@
 # without standing up Cognito or any IdP. Same local keypair as Stage 2.
 #
 # Usage:
-#   bash tools/publish-oidc.sh        # uses --profile agenticvault
+#   bash tools/publish-oidc.sh        # uses --profile $AWS_PROFILE (or default creds)
 #
 # After running, note the printed DISCOVERY_URL — that's what you pass
 # to `agentcore add gateway --discovery-url <DISCOVERY_URL>`.
 set -euo pipefail
-PROFILE="${AWS_PROFILE:-agenticvault}"
+PROFILE="${AWS_PROFILE:-}"
 REGION=us-east-1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARENT="$HERE/.."
-ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)"
+ACCOUNT="$(aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text)"
 BUCKET="stage2-oidc-issuer-${ACCOUNT}"
 ISSUER_BASE="https://${BUCKET}.s3.${REGION}.amazonaws.com"
 
@@ -25,17 +25,17 @@ if [ ! -f "$PARENT/jwks.json" ]; then
 fi
 
 # 1. Create the bucket (us-east-1 needs no LocationConstraint)
-if ! aws s3api head-bucket --bucket "$BUCKET" --profile "$PROFILE" 2>/dev/null; then
+if ! aws s3api head-bucket --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} 2>/dev/null; then
   echo "[publish-oidc] creating bucket $BUCKET"
-  aws s3api create-bucket --bucket "$BUCKET" --profile "$PROFILE" --region "$REGION"
+  aws s3api create-bucket --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 fi
 
 # 2. Disable block-public-access (needed for the Gateway to fetch the discovery doc + JWKS)
-aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
+aws s3api put-public-access-block --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} \
   --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
 
 # 3. Set a bucket policy allowing public GetObject (read-only)
-aws s3api put-bucket-policy --bucket "$BUCKET" --profile "$PROFILE" --policy "$(cat <<POLICY
+aws s3api put-bucket-policy --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} --policy "$(cat <<POLICY
 {
   "Version":"2012-10-17",
   "Statement":[{
@@ -61,11 +61,11 @@ cat > /tmp/openid-configuration <<EOF
 }
 EOF
 aws s3 cp /tmp/openid-configuration "s3://${BUCKET}/.well-known/openid-configuration" \
-  --content-type "application/json" --profile "$PROFILE" --region "$REGION"
+  --content-type "application/json" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 
 # 5. Upload the JWKS
 aws s3 cp "$PARENT/jwks.json" "s3://${BUCKET}/jwks.json" \
-  --content-type "application/json" --profile "$PROFILE" --region "$REGION"
+  --content-type "application/json" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 
 DISCOVERY_URL="${ISSUER_BASE}/.well-known/openid-configuration"
 echo

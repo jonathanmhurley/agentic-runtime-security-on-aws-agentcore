@@ -12,9 +12,9 @@
 #   ISS="<same base as mint-jwt --iss>" \
 #   bash broker/deploy.sh
 set -euo pipefail
-PROFILE=agenticvault
+PROFILE="${AWS_PROFILE:-}"
 REGION=us-east-1
-ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)"
+ACCOUNT="$(aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text)"
 KB_ID="${KB_ID:-QLKOTZM2GC}"
 FN=stage2-cred-broker
 VENDED_ROLE=Stage2VendedKBReadRole
@@ -25,17 +25,17 @@ ALLOWED_SUBS="${ALLOWED_SUBS:-uc1-agent}"
 : "${ISS:?set ISS to the issuer you mint tokens with}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "[broker] identity (expect $ACCOUNT)"; aws sts get-caller-identity --profile "$PROFILE" --query Account --output text
+echo "[broker] identity (expect $ACCOUNT)"; aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text
 
 # 1. Lambda execution role FIRST — the vended role's trust policy names it as
 #    principal, and AWS rejects a trust policy referencing a non-existent principal.
 LAMBDA_ROLE_ARN="arn:aws:iam::${ACCOUNT}:role/${LAMBDA_ROLE}"
 LAMBDA_TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-if ! aws iam get-role --role-name "$LAMBDA_ROLE" --profile "$PROFILE" >/dev/null 2>&1; then
-  aws iam create-role --role-name "$LAMBDA_ROLE" --profile "$PROFILE" --assume-role-policy-document "$LAMBDA_TRUST"
+if ! aws iam get-role --role-name "$LAMBDA_ROLE" ${PROFILE:+--profile "$PROFILE"} >/dev/null 2>&1; then
+  aws iam create-role --role-name "$LAMBDA_ROLE" ${PROFILE:+--profile "$PROFILE"} --assume-role-policy-document "$LAMBDA_TRUST"
 fi
 VENDED_ROLE_ARN="arn:aws:iam::${ACCOUNT}:role/${VENDED_ROLE}"
-aws iam put-role-policy --role-name "$LAMBDA_ROLE" --profile "$PROFILE" --policy-name broker-perms \
+aws iam put-role-policy --role-name "$LAMBDA_ROLE" ${PROFILE:+--profile "$PROFILE"} --policy-name broker-perms \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[\
     {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\"],\"Resource\":\"arn:aws:logs:${REGION}:${ACCOUNT}:*\"},\
     {\"Effect\":\"Allow\",\"Action\":\"sts:AssumeRole\",\"Resource\":\"${VENDED_ROLE_ARN}\"}]}"
@@ -43,17 +43,17 @@ aws iam put-role-policy --role-name "$LAMBDA_ROLE" --profile "$PROFILE" --policy
 # 2. Vended role — what the broker hands out. Scoped to bedrock:Retrieve on the one KB.
 #    Trust policy names the Lambda role (now exists). Retry briefly for IAM propagation.
 VEND_TRUST="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"${LAMBDA_ROLE_ARN}\"},\"Action\":\"sts:AssumeRole\"}]}"
-if ! aws iam get-role --role-name "$VENDED_ROLE" --profile "$PROFILE" >/dev/null 2>&1; then
+if ! aws iam get-role --role-name "$VENDED_ROLE" ${PROFILE:+--profile "$PROFILE"} >/dev/null 2>&1; then
   for attempt in 1 2 3 4 5; do
-    if aws iam create-role --role-name "$VENDED_ROLE" --profile "$PROFILE" --assume-role-policy-document "$VEND_TRUST" 2>/dev/null; then
+    if aws iam create-role --role-name "$VENDED_ROLE" ${PROFILE:+--profile "$PROFILE"} --assume-role-policy-document "$VEND_TRUST" 2>/dev/null; then
       break
     fi
     echo "[broker] vended-role create retry $attempt (waiting for Lambda role to propagate)"; sleep 5
   done
 else
-  aws iam update-assume-role-policy --role-name "$VENDED_ROLE" --profile "$PROFILE" --policy-document "$VEND_TRUST"
+  aws iam update-assume-role-policy --role-name "$VENDED_ROLE" ${PROFILE:+--profile "$PROFILE"} --policy-document "$VEND_TRUST"
 fi
-aws iam put-role-policy --role-name "$VENDED_ROLE" --profile "$PROFILE" \
+aws iam put-role-policy --role-name "$VENDED_ROLE" ${PROFILE:+--profile "$PROFILE"} \
   --policy-name kb-read --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"bedrock:Retrieve\"],\"Resource\":\"arn:aws:bedrock:${REGION}:${ACCOUNT}:knowledge-base/${KB_ID}\"}]}"
 echo "[broker] waiting 10s for role propagation"; sleep 10
 
@@ -71,15 +71,15 @@ ZIP="$HERE/broker.zip"
 
 # 4. Create/update the function.
 ENVVARS="Variables={JWKS_URL=$JWKS_URL,EXPECTED_ISS=$ISS,EXPECTED_AUD=$AUD,SCOPED_ROLE_ARN=$VENDED_ROLE_ARN,ALLOWED_SUBS=$ALLOWED_SUBS,CRED_TTL_SECONDS=900}"
-if aws lambda get-function --function-name "$FN" --profile "$PROFILE" --region "$REGION" >/dev/null 2>&1; then
-  aws lambda update-function-code --function-name "$FN" --profile "$PROFILE" --region "$REGION" --zip-file "fileb://$ZIP" >/dev/null
+if aws lambda get-function --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null 2>&1; then
+  aws lambda update-function-code --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --zip-file "fileb://$ZIP" >/dev/null
   # Wait for the code update to finish before the config update — otherwise the
   # second call races the first and fails with ResourceConflictException.
-  aws lambda wait function-updated --function-name "$FN" --profile "$PROFILE" --region "$REGION"
-  aws lambda update-function-configuration --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
+  aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
+  aws lambda update-function-configuration --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
     --environment "$ENVVARS" --handler handler.handler --runtime python3.12 --timeout 15 >/dev/null
 else
-  aws lambda create-function --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
+  aws lambda create-function --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
     --runtime python3.12 --handler handler.handler --timeout 15 \
     --role "$LAMBDA_ROLE_ARN" --zip-file "fileb://$ZIP" --environment "$ENVVARS" >/dev/null
 fi
@@ -98,7 +98,7 @@ fi
 # URL above is retained but not used by the agent — direct invoke sidesteps the
 # Function-URL HTTP-auth layer the AgentCore runtime could not satisfy).
 AGENT_EXEC_ROLE="${AGENT_EXEC_ROLE:-AgentCore-stage0hello-def-ApplicationAgentStage0hel-sV2ZNvKgNJNS}"
-aws iam put-role-policy --role-name "$AGENT_EXEC_ROLE" --profile "$PROFILE" \
+aws iam put-role-policy --role-name "$AGENT_EXEC_ROLE" ${PROFILE:+--profile "$PROFILE"} \
   --policy-name stage2-invoke-broker-fn \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"lambda:InvokeFunction\"],\"Resource\":\"arn:aws:lambda:${REGION}:${ACCOUNT}:function:${FN}\"}]}" \
   2>/dev/null && echo "[broker] granted ${AGENT_EXEC_ROLE} lambda:InvokeFunction on ${FN}" || echo "[broker] (invoke grant skipped — set AGENT_EXEC_ROLE if the agent role name differs)"

@@ -10,9 +10,9 @@
 # 2. Creates an API Gateway HTTP API as an alternative public endpoint
 # 3. Updates the Lambda's TOKEN_ENDPOINT env var to point at the APIGW URL
 set -euo pipefail
-PROFILE="${AWS_PROFILE:-agenticvault}"
+PROFILE="${AWS_PROFILE:-}"
 REGION=us-east-1
-ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)"
+ACCOUNT="$(aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text)"
 FN=oauth-mock-server
 API_NAME=oauth-mock-api
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,33 +28,33 @@ echo ""
 echo "[oauth-mock-dev] Setting up API Gateway (SCP workaround)..."
 LAMBDA_ARN="arn:aws:lambda:${REGION}:${ACCOUNT}:function:${FN}"
 
-API_ID=$(aws apigatewayv2 get-apis --profile "$PROFILE" --region "$REGION" \
+API_ID=$(aws apigatewayv2 get-apis ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --query "Items[?Name=='${API_NAME}'].ApiId | [0]" --output text 2>/dev/null || echo "None")
 
 if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
   API_ID=$(aws apigatewayv2 create-api --name "$API_NAME" --protocol-type HTTP \
-    --profile "$PROFILE" --region "$REGION" --query 'ApiId' --output text)
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'ApiId' --output text)
 
   # Lambda proxy integration (payload format 2.0 = same as Function URL event shape)
   INTEGRATION_ID=$(aws apigatewayv2 create-integration --api-id "$API_ID" \
     --integration-type AWS_PROXY \
     --integration-uri "$LAMBDA_ARN" \
     --payload-format-version "2.0" \
-    --profile "$PROFILE" --region "$REGION" --query 'IntegrationId' --output text)
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'IntegrationId' --output text)
 
   # Default catch-all route
   aws apigatewayv2 create-route --api-id "$API_ID" \
     --route-key '$default' \
     --target "integrations/${INTEGRATION_ID}" \
-    --profile "$PROFILE" --region "$REGION" >/dev/null
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
 
   # Auto-deploy stage
   aws apigatewayv2 create-stage --api-id "$API_ID" \
     --stage-name '$default' --auto-deploy \
-    --profile "$PROFILE" --region "$REGION" >/dev/null
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
 
   # Grant API Gateway permission to invoke the Lambda
-  aws lambda add-permission --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
+  aws lambda add-permission --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
     --statement-id ApiGatewayInvoke \
     --action lambda:InvokeFunction \
     --principal apigateway.amazonaws.com \
@@ -76,8 +76,8 @@ ENDJSON
 }
 
 ENVJSON=$(_build_env_json "${API_URL}/token")
-aws lambda wait function-updated --function-name "$FN" --profile "$PROFILE" --region "$REGION"
-aws lambda update-function-configuration --function-name "$FN" --profile "$PROFILE" --region "$REGION" \
+aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
+aws lambda update-function-configuration --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --environment "$ENVJSON" >/dev/null
 
 echo ""
@@ -94,7 +94,7 @@ echo "      -d 'grant_type=client_credentials' | python3 -m json.tool"
 echo ""
 echo "  Register with AgentCore (Phase B):"
 echo "    aws bedrock-agentcore-control create-oauth2-credential-provider \\"
-echo "      --profile $PROFILE --region $REGION \\"
+echo "      ${PROFILE:+--profile $PROFILE} --region $REGION \\"
 echo "      --cli-input-json '{"
 echo "      \"name\": \"workshop-obo-vault\","
 echo "      \"credentialProviderVendor\": \"CustomOauth2\","
