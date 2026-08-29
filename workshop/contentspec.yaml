@@ -16,6 +16,7 @@ awsAccountConfig:
       - arn:aws:iam::aws:policy/IAMFullAccess
       - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
       - arn:aws:iam::aws:policy/AWSCloudShellFullAccess
+      - arn:aws:iam::aws:policy/BedrockAgentCoreFullAccess
   regionConfiguration:
     minAccessibleRegions: 1
     maxAccessibleRegions: 1
