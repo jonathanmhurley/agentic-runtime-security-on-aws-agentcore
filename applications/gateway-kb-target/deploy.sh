@@ -11,13 +11,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Auto-discover Gateway ID from deployed-state.json or list-gateways API
 if [ -z "${GATEWAY_ID:-}" ]; then
-  STATE_FILE="$HERE/../stage0hello/agentcore/deployed-state.json"
-  if [ -f "$STATE_FILE" ]; then
-    GATEWAY_ID=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print([g['gatewayId'] for g in d.get('gateways',{}).values()][0])" 2>/dev/null || true)
-  fi
-  if [ -z "${GATEWAY_ID:-}" ]; then
-    GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query "gateways[?contains(gatewayName,'workshop-gateway')].gatewayId | [0]" --output text 2>/dev/null || echo "")
-  fi
+  GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
+    --query "items[?contains(name,'workshop-gateway')].gatewayId | [0]" --output text 2>/dev/null || echo "")
+  [ "$GATEWAY_ID" = "None" ] && GATEWAY_ID=""
   [ -z "${GATEWAY_ID:-}" ] && { echo "[gateway-kb-target] ERROR: Could not discover Gateway ID. Set GATEWAY_ID env var."; exit 1; }
 fi
 
