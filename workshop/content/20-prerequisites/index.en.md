@@ -31,3 +31,31 @@ pre-provisioned — you do not need to obtain one separately.
 
 This workshop is validated against pinned versions. Do not float to `latest`.
 See the "Tested against" block in `docs/DESIGN.md` §7 for the exact versions.
+
+## Clone the workshop repository
+
+All workshop code, deployment scripts, and configuration files live in a single Git
+repository. Clone it before starting:
+
+```bash
+git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
+cd agentic-runtime-security-on-aws-agentcore
+```
+
+## Install the AgentCore CLI
+
+```bash
+# CloudShell: home directory is small (~1GB). Install to /tmp (larger ephemeral volume).
+rm -rf ~/.npm/_cacache                     # clear stale cache if present
+export NPM_CONFIG_PREFIX=/tmp/npm-global
+export PATH="/tmp/npm-global/bin:$PATH"
+
+npm install -g @aws/agentcore
+agentcore --version    # expect 0.27.x or later
+```
+
+> **CloudShell timeout note:** `/tmp` is ephemeral — if your CloudShell session times
+> out (~20 min idle), re-run the install commands above. Your repo clone and home
+> directory files persist across timeouts.
+
+All subsequent steps assume you are working from the repository root directory.

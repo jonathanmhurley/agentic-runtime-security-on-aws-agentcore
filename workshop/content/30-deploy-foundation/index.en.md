@@ -13,10 +13,34 @@ Three components that form the foundation for the workshop's security demonstrat
 3. **An AgentCore Gateway** — validates inbound JWTs and brokers scoped access to
    downstream targets
 
+## Step 0 — Verify your environment
+
+If you haven't already, clone the repo and install the AgentCore CLI
+(see [Prerequisites](../20-prerequisites/)):
+
+```bash
+git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
+cd agentic-runtime-security-on-aws-agentcore
+npm install -g @aws/agentcore
+aws sts get-caller-identity    # confirm the right account
+```
+
 ## Step 1 — Deploy the agent on AgentCore Runtime
+
+First, tell the AgentCore CLI which account to deploy to:
 
 ```bash
 cd applications/stage0hello
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+cat > agentcore/aws-targets.json << EOF
+[{"name":"default","description":"Workshop target","account":"${ACCOUNT_ID}","region":"us-east-1"}]
+EOF
+```
+
+Then deploy:
+
+```bash
 agentcore deploy
 agentcore status    # expect: Runtime READY
 agentcore invoke "Hello, confirm you are running"
