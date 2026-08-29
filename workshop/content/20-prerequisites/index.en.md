@@ -58,4 +58,14 @@ agentcore --version    # expect 0.27.x or later
 > out (~20 min idle), re-run the install commands above. Your repo clone and home
 > directory files persist across timeouts.
 
+## Install uv (Python package manager)
+
+The AgentCore CLI uses `uv` to manage Python dependencies during deploy:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+uv --version    # expect 0.6.x or later
+```
+
 All subsequent steps assume you are working from the repository root directory.
