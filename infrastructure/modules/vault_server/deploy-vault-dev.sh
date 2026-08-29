@@ -15,9 +15,9 @@
 #
 # Outputs: VAULT_ADDR, VAULT_TOKEN (dev-mode root token)
 set -euo pipefail
-PROFILE="${AWS_PROFILE:-agenticvault}"
+PROFILE="${AWS_PROFILE:-}"
 REGION="${AWS_REGION:-us-east-1}"
-ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)"
+ACCOUNT="$(aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LICENSE_FILE="$HERE/vault.hclic"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
@@ -45,24 +45,24 @@ fi
 MY_CIDR="${MY_IP}/32"
 echo "[vault-dev] your IP: $MY_IP (SG will allow only $MY_CIDR)"
 
-SG_ID="$(aws ec2 describe-security-groups --profile "$PROFILE" --region "$REGION" \
+SG_ID="$(aws ec2 describe-security-groups ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --filters "Name=group-name,Values=$SG_NAME" \
   --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "None")"
 if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
   echo "[vault-dev] creating security group $SG_NAME"
-  SG_ID="$(aws ec2 create-security-group --profile "$PROFILE" --region "$REGION" \
+  SG_ID="$(aws ec2 create-security-group ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
     --group-name "$SG_NAME" --description "Vault dev-mode (port 8200, restricted to deployer IP)" \
     --query GroupId --output text)"
 fi
 # Always update the ingress rule to the current IP (handles IP changes between sessions)
-aws ec2 revoke-security-group-ingress --profile "$PROFILE" --region "$REGION" \
+aws ec2 revoke-security-group-ingress ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --group-id "$SG_ID" --protocol tcp --port 8200 --cidr 0.0.0.0/0 2>/dev/null || true
-aws ec2 authorize-security-group-ingress --profile "$PROFILE" --region "$REGION" \
+aws ec2 authorize-security-group-ingress ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --group-id "$SG_ID" --protocol tcp --port 8200 --cidr "$MY_CIDR" 2>/dev/null || true
 echo "[vault-dev] SG $SG_ID: port 8200 open to $MY_CIDR only"
 
 # 2. Find latest Amazon Linux 2023 AMI
-AMI_ID="$(aws ec2 describe-images --profile "$PROFILE" --region "$REGION" \
+AMI_ID="$(aws ec2 describe-images ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --owners amazon --filters "Name=name,Values=al2023-ami-2023.*-x86_64" "Name=state,Values=available" \
   --query "Images | sort_by(@, &CreationDate) | [-1].ImageId" --output text)"
 echo "[vault-dev] AMI: $AMI_ID"
@@ -106,7 +106,7 @@ USER_DATA="${USER_DATA//__LICENSE_PLACEHOLDER__/$LICENSE}"
 # 4. Launch the instance
 echo "[vault-dev] launching $INSTANCE_TYPE instance..."
 LAUNCH_ARGS=(
-  --profile "$PROFILE" --region "$REGION"
+  ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
   --image-id "$AMI_ID"
   --instance-type "$INSTANCE_TYPE"
   --security-group-ids "$SG_ID"
@@ -121,10 +121,10 @@ INSTANCE_ID="$(aws ec2 run-instances "${LAUNCH_ARGS[@]}" \
   --query "Instances[0].InstanceId" --output text)"
 echo "[vault-dev] instance: $INSTANCE_ID — waiting for running..."
 
-aws ec2 wait instance-running --profile "$PROFILE" --region "$REGION" --instance-ids "$INSTANCE_ID"
+aws ec2 wait instance-running ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --instance-ids "$INSTANCE_ID"
 
 # 5. Get the public IP
-PUBLIC_IP="$(aws ec2 describe-instances --profile "$PROFILE" --region "$REGION" \
+PUBLIC_IP="$(aws ec2 describe-instances ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --instance-ids "$INSTANCE_ID" \
   --query "Reservations[0].Instances[0].PublicIpAddress" --output text)"
 
@@ -143,5 +143,5 @@ echo "    export VAULT_TOKEN=workshop-root-token"
 echo "    vault status"
 echo
 echo "  NOTE: dev mode = in-memory. Data is lost on instance stop."
-echo "  To tear down: aws ec2 terminate-instances --instance-ids $INSTANCE_ID --profile $PROFILE --region $REGION"
+echo "  To tear down: aws ec2 terminate-instances --instance-ids $INSTANCE_ID ${PROFILE:+--profile $PROFILE} --region $REGION"
 echo "============================================================"

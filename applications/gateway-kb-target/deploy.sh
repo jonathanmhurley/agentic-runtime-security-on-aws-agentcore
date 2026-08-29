@@ -6,8 +6,16 @@ PROFILE="${AWS_PROFILE:-}"
 REGION=us-east-1
 ACCOUNT="$(aws sts get-caller-identity ${PROFILE:+--profile "$PROFILE"} --query Account --output text)"
 FN=gateway-kb-target
-KB_ID="${KB_ID:-QLKOTZM2GC}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Auto-discover KB ID from list-knowledge-bases (matches the Meridian KB created by create-kb.sh)
+if [ -z "${KB_ID:-}" ]; then
+  KB_ID=$(aws bedrock-agent list-knowledge-bases ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
+    --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text 2>/dev/null || echo "")
+  [ "$KB_ID" = "None" ] && KB_ID=""
+  [ -z "${KB_ID:-}" ] && { echo "[gateway-kb-target] ERROR: Could not discover KB ID. Run create-kb.sh first, or set KB_ID env var."; exit 1; }
+  echo "[gateway-kb-target] discovered KB: $KB_ID"
+fi
 
 # Auto-discover Gateway ID from deployed-state.json or list-gateways API
 if [ -z "${GATEWAY_ID:-}" ]; then
@@ -72,6 +80,8 @@ else
 fi
 
 # 4. Register as a Gateway target
+echo "[gateway-kb-target] waiting for IAM propagation..."
+sleep 10
 echo "[gateway-kb-target] adding target to gateway $GATEWAY_ID"
 aws bedrock-agentcore-control create-gateway-target \
   --gateway-identifier "$GATEWAY_ID" \
