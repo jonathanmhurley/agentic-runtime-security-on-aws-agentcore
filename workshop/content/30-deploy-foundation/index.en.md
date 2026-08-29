@@ -17,6 +17,20 @@ Three components that form the foundation for the workshop's security demonstrat
 > (clone the repo, run the setup script). All commands below assume you are in the
 > repository root (`agentic-runtime-security-on-aws-agentcore/`).
 
+## Workshop variables
+
+Set these once. They're used across all steps:
+
+```bash
+# OIDC discovery + JWKS (public GitHub-hosted, same for all attendees)
+OIDC_DISCOVERY_URL="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration"
+JWKS_URL="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/jwks.json"
+
+# Account (auto-detected)
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "Account: $ACCOUNT_ID"
+```
+
 ## Step 1 — Deploy the agent on AgentCore Runtime
 
 ```bash
@@ -45,12 +59,15 @@ in three API calls. Wait for ingestion to complete (~2-5 min).
 
 ## Step 3 — Deploy the Gateway + KB target
 
+The Gateway already exists (defined in `agentcore.json`). Add the OIDC discovery
+configuration, then deploy the KB target Lambda:
+
 ```bash
 cd ../stage0hello
 agentcore add gateway \
   --name workshop-gateway \
   --authorizer-type CUSTOM_JWT \
-  --discovery-url "<OIDC_DISCOVERY_URL>" \
+  --discovery-url "$OIDC_DISCOVERY_URL" \
   --allowed-audience vault-standin \
   --runtimes stage0hello
 agentcore deploy --yes
@@ -67,9 +84,18 @@ wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
 ```bash
 cd ../../infrastructure/modules/vault_server
 bash deploy-vault-dev.sh
-# Wait ~90s, then configure:
+```
+
+Wait ~90 seconds for Vault to start, then configure JWT auth:
+
+```bash
+export VAULT_ADDR="http://$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=vault-workshop" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1):8200"
+export VAULT_TOKEN=workshop-root-token
+
 vault auth enable jwt
-vault write auth/jwt/config jwks_url="<JWKS_URL>" default_role="uc1-agent"
+vault write auth/jwt/config jwks_url="$JWKS_URL" default_role="uc1-agent"
 vault write auth/jwt/role/uc1-agent \
   role_type=jwt bound_audiences=vault-standin bound_subject=uc1-agent \
   user_claim=sub token_policies=uc1 token_ttl=15m
