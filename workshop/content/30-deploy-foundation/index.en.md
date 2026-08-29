@@ -13,34 +13,14 @@ Three components that form the foundation for the workshop's security demonstrat
 3. **An AgentCore Gateway** — validates inbound JWTs and brokers scoped access to
    downstream targets
 
-## Step 0 — Verify your environment
-
-If you haven't already, clone the repo and install the AgentCore CLI
-(see [Prerequisites](../20-prerequisites/)):
-
-```bash
-git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
-cd agentic-runtime-security-on-aws-agentcore
-npm install -g @aws/agentcore
-aws sts get-caller-identity    # confirm the right account
-```
+> **Before you start:** complete the [Prerequisites](../20-prerequisites/) section
+> (clone the repo, run the setup script). All commands below assume you are in the
+> repository root (`agentic-runtime-security-on-aws-agentcore/`).
 
 ## Step 1 — Deploy the agent on AgentCore Runtime
 
-First, tell the AgentCore CLI which account to deploy to:
-
 ```bash
 cd applications/stage0hello
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-cat > agentcore/aws-targets.json << EOF
-[{"name":"default","description":"Workshop target","account":"${ACCOUNT_ID}","region":"us-east-1"}]
-EOF
-```
-
-Then deploy:
-
-```bash
 agentcore deploy
 agentcore status    # expect: Runtime READY
 agentcore invoke "Hello, confirm you are running"
@@ -52,7 +32,7 @@ has a workload identity (ARN visible in `agentcore status`).
 ## Step 2 — Stand up the managed Knowledge Base
 
 ```bash
-cd applications/stage1-kb
+cd ../stage1-kb
 bash create-kb.sh
 ```
 
@@ -62,7 +42,7 @@ in three API calls. Wait for ingestion to complete (~2-5 min).
 ## Step 3 — Deploy the Gateway + KB target
 
 ```bash
-cd applications/stage0hello
+cd ../stage0hello
 agentcore add gateway \
   --name workshop-gateway \
   --authorizer-type CUSTOM_JWT \
@@ -71,7 +51,7 @@ agentcore add gateway \
   --runtimes stage0hello
 agentcore deploy
 
-cd applications/gateway-kb-target
+cd ../gateway-kb-target
 bash deploy.sh
 ```
 
@@ -81,7 +61,7 @@ wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
 ## Step 4 — Deploy Vault Enterprise
 
 ```bash
-cd infrastructure/modules/vault_server
+cd ../../infrastructure/modules/vault_server
 bash deploy-vault-dev.sh
 # Wait ~90s, then configure:
 vault auth enable jwt

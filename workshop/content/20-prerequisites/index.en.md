@@ -33,7 +33,9 @@ pre-provisioned — you do not need to obtain one separately.
 This workshop is validated against pinned versions. Do not float to `latest`.
 See the "Tested against" block in `docs/DESIGN.md` §7 for the exact versions.
 
-## CloudShell setup (one command)
+## CloudShell setup
+
+[Open AWS CloudShell](https://console.aws.amazon.com/cloudshell/home?region=us-east-1) in your workshop account, then run:
 
 Clone the repo and run the setup script. It installs the AgentCore CLI, `uv`,
 and creates the deployment target config for your account:
