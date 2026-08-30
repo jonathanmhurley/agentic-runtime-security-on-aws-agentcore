@@ -68,14 +68,16 @@ fi
 API_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com"
 
 # 3. Update TOKEN_ENDPOINT to APIGW URL
+# $1 = token_endpoint, $2 = issuer (optional, defaults to placeholder)
 _build_env_json() {
   local token_endpoint="${1:-}"
+  local issuer="${2:-PLACEHOLDER_ISSUER}"
   cat <<ENDJSON
-{"Variables":{"ISSUER":"https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin","KID":"stage2-key-1","AUDIENCE":"vault-standin","AGENT_SUB":"uc1-agent","TOKEN_TTL":"900","CLIENT_ID":"${CLIENT_ID}","CLIENT_SECRET":"${CLIENT_SECRET}","TOKEN_ENDPOINT":"${token_endpoint}"}}
+{"Variables":{"ISSUER":"${issuer}","KID":"stage2-key-1","AUDIENCE":"vault-standin","AGENT_SUB":"uc1-agent","TOKEN_TTL":"900","CLIENT_ID":"${CLIENT_ID}","CLIENT_SECRET":"${CLIENT_SECRET}","TOKEN_ENDPOINT":"${token_endpoint}"}}
 ENDJSON
 }
 
-ENVJSON=$(_build_env_json "${API_URL}/token")
+ENVJSON=$(_build_env_json "${API_URL}/token" "${API_URL}")
 aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 aws lambda update-function-configuration --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --environment "$ENVJSON" >/dev/null

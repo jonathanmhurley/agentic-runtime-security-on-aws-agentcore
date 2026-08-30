@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 # Deploy the UC2 OAuth mock token server.
 # Issues user-identity JWTs for the AgentCore OBO exchange.
-#
-# Creates a Function URL (AuthType: NONE) so AgentCore can POST to /token.
-# The handler validates client credentials (CLIENT_SECRET_BASIC) at the
-# application layer — this is the standard OAuth pattern for token endpoints.
-#
-# NOTE: If your account has an org SCP blocking AuthType: NONE Function URLs
-# (e.g. internal Amazon accounts), use deploy-dev.sh instead — it adds an
-# API Gateway HTTP API as an alternative public endpoint.
+# Creates an API Gateway HTTP API as the public endpoint (Function URLs with
+# AuthType: NONE are blocked by org SCPs on both internal Amazon accounts and
+# Workshop Studio vended accounts).
+# The handler validates client credentials (CLIENT_SECRET_BASIC) at the app layer.
 set -euo pipefail
 PROFILE="${AWS_PROFILE:-}"
 REGION=us-east-1
@@ -51,10 +47,12 @@ python3 -m pip install pyjwt cryptography -t "$BUILD" --quiet \
 ZIP="$HERE/mock-server.zip"
 
 # 3. Build env vars JSON
+# $1 = token_endpoint, $2 = issuer (optional, defaults to placeholder)
 _build_env_json() {
   local token_endpoint="${1:-}"
+  local issuer="${2:-PLACEHOLDER_ISSUER}"
   cat <<ENDJSON
-{"Variables":{"ISSUER":"https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin","KID":"stage2-key-1","AUDIENCE":"vault-standin","AGENT_SUB":"uc1-agent","TOKEN_TTL":"900","CLIENT_ID":"${CLIENT_ID}","CLIENT_SECRET":"${CLIENT_SECRET}","TOKEN_ENDPOINT":"${token_endpoint}"}}
+{"Variables":{"ISSUER":"${issuer}","KID":"stage2-key-1","AUDIENCE":"vault-standin","AGENT_SUB":"uc1-agent","TOKEN_TTL":"900","CLIENT_ID":"${CLIENT_ID}","CLIENT_SECRET":"${CLIENT_SECRET}","TOKEN_ENDPOINT":"${token_endpoint}"}}
 ENDJSON
 }
 
@@ -74,24 +72,7 @@ fi
 aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 LAMBDA_ARN="arn:aws:lambda:${REGION}:${ACCOUNT}:function:${FN}"
 
-# 5. Function URL (AuthType: NONE — application-layer client auth in the handler)
-FURL=$(aws lambda get-function-url-config --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'FunctionUrl' --output text 2>/dev/null || echo "")
-if [ -z "$FURL" ] || [ "$FURL" = "None" ]; then
-  FURL=$(aws lambda create-function-url-config --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
-    --auth-type NONE --query 'FunctionUrl' --output text)
-  # Allow public invoke (required for AuthType: NONE)
-  aws lambda add-permission --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
-    --statement-id FunctionURLAllowPublicAccess \
-    --action lambda:InvokeFunctionUrl \
-    --principal "*" \
-    --function-url-auth-type NONE 2>/dev/null || true
-fi
-
-# Remove trailing slash for cleaner URL construction
-FURL="${FURL%/}"
-
-
-# 6. API Gateway HTTP API (reliable public endpoint — Function URLs blocked on some accounts)
+# 5. API Gateway HTTP API (public endpoint — Function URLs blocked by org SCPs)
 API_NAME=oauth-mock-api
 API_ID=$(aws apigatewayv2 get-apis ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --query "Items[?Name=='${API_NAME}'].ApiId | [0]" --output text 2>/dev/null || echo "None")
@@ -124,8 +105,8 @@ fi
 
 API_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com"
 
-# 7. Update TOKEN_ENDPOINT to APIGW URL (reliable, not blocked by org SCPs)
-ENVJSON=$(_build_env_json "${API_URL}/token")
+# 6. Update ISSUER + TOKEN_ENDPOINT to APIGW URL
+ENVJSON=$(_build_env_json "${API_URL}/token" "${API_URL}")
 aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 aws lambda update-function-configuration --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --environment "$ENVJSON" >/dev/null

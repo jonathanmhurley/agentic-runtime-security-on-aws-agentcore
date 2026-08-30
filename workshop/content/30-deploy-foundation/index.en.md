@@ -56,10 +56,12 @@ cd ../oauth-mock-server
 bash deploy.sh
 ```
 
-Note the **API Gateway URL** from the deploy output. Set it as a variable:
+Set the mock server URL from the deployed API Gateway:
 
 ```bash
-MOCK_SERVER_URL="<paste API Gateway URL from deploy output, no trailing slash>"
+MOCK_SERVER_URL="https://$(aws apigatewayv2 get-apis \
+  --query "Items[?Name=='oauth-mock-api'].ApiId | [0]" \
+  --output text).execute-api.${AWS_REGION:-us-east-1}.amazonaws.com"
 OIDC_DISCOVERY_URL="${MOCK_SERVER_URL}/.well-known/openid-configuration"
 JWKS_URL="${MOCK_SERVER_URL}/jwks.json"
 # ISSUER must match the APIGW URL (OIDC spec requires issuer = discovery URL prefix)
