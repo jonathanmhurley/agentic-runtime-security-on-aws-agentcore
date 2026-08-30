@@ -9,7 +9,7 @@ Generate tokens for two users via the mock OAuth server. Both are valid, signed 
 that the runtime authorizer will accept. The difference is the `sub` claim.
 
 ```bash
-cd applications/stage0hello
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/stage0hello
 
 # Alice
 aws lambda invoke --function-name oauth-mock-server \

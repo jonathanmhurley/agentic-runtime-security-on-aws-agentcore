@@ -21,47 +21,43 @@ must include `--bearer-token`.
 
 ## Add the authorizer
 
-Edit `applications/stage0hello/agentcore/agentcore.json`. Inside the runtime entry
-in the `runtimes` array, add `authorizerType` and `authorizerConfiguration`:
+The authorizer must be in `agentcore.json` (CDK overwrites runtime config on every
+deploy, so CLI-only changes are lost). Run this to patch it automatically using your
+`$MOCK_SERVER_URL`:
 
-```json
-{
-  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
-  "name": "stage0hello",
-  "runtimes": [
-    {
-      "name": "stage0hello",
-      "build": "CodeZip",
-      "entrypoint": "main.py",
-      "codeLocation": "app/stage0hello/",
-      "runtimeVersion": "PYTHON_3_14",
-      "networkMode": "PUBLIC",
-      "protocol": "HTTP",
-      "authorizerType": "CUSTOM_JWT",
-      "authorizerConfiguration": {
-        "customJwtAuthorizer": {
-          "discoveryUrl": "<MOCK_SERVER_URL>/.well-known/openid-configuration",
-          "allowedAudience": [
-            "vault-standin"
-          ]
+```bash
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/stage0hello
+
+python3 -c "
+import json
+with open('agentcore/agentcore.json') as f:
+    cfg = json.load(f)
+for rt in cfg['runtimes']:
+    if rt['name'] == 'stage0hello':
+        rt['authorizerType'] = 'CUSTOM_JWT'
+        rt['authorizerConfiguration'] = {
+            'customJwtAuthorizer': {
+                'discoveryUrl': '${MOCK_SERVER_URL}/.well-known/openid-configuration',
+                'allowedAudience': ['vault-standin']
+            }
         }
-      }
-    }
-  ]
-}
+with open('agentcore/agentcore.json', 'w') as f:
+    json.dump(cfg, f, indent=2)
+print('Patched agentcore.json with JWT authorizer')
+"
 ```
 
-{{% notice tip %}}
-The authorizer **must** be in `agentcore.json`, not applied via the CLI
-`update-agent-runtime` command. CDK overwrites the runtime config from
-`agentcore.json` on every deploy, so manual changes are lost. Replace
-`<MOCK_SERVER_URL>` with your actual API Gateway URL before deploying.
-{{% /notice %}}
+Verify the patch:
+
+```bash
+python3 -c "import json; cfg=json.load(open('agentcore/agentcore.json')); print(json.dumps(cfg['runtimes'][0].get('authorizerConfiguration',{}), indent=2))"
+```
+
+You should see your API Gateway URL in the `discoveryUrl` field.
 
 Deploy the updated config:
 
 ```bash
-cd applications/stage0hello
 agentcore deploy --yes
 ```
 

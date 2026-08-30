@@ -50,18 +50,28 @@ Key decisions:
 - **`CLIENT_SECRET_BASIC`**: client ID and secret go in the Authorization header as
   HTTP Basic Auth, not in the POST body.
 
-Note the `clientSecretArn` in the response. AgentCore stores your client secret in
-Secrets Manager automatically. You need this ARN for the IAM policy below.
+Note the `clientSecretArn` in the response — you need this ARN for the IAM policy below.
 
 ## Grant the execution role permissions
 
-The runtime's execution role needs two additional policies. Add them with `put-role-policy`:
+Discover the execution role name and secret ARN, then attach the required policies:
 
 ```bash
+# Discover the execution role (created by CDK during agentcore deploy)
+EXECUTION_ROLE_NAME=$(aws iam list-roles \
+  --query "Roles[?starts_with(RoleName,'AgentCore-stage0hello') && contains(RoleName,'Application')].RoleName | [0]" \
+  --output text)
+echo "Execution role: $EXECUTION_ROLE_NAME"
+
+# Discover the secret ARN from the credential provider
+SECRET_ARN=$(aws bedrock-agentcore-control get-oauth2-credential-provider \
+  --name workshop-obo-vault --region us-east-1 \
+  --query 'clientSecretArn.secretArn' --output text)
+echo "Secret ARN: $SECRET_ARN"
+
 # OBO Identity permissions
 aws iam put-role-policy \
-  --role-name <EXECUTION_ROLE_NAME> \
-  --region us-east-1 \
+  --role-name "$EXECUTION_ROLE_NAME" \
   --policy-name obo-identity \
   --policy-document '{
     "Version": "2012-10-17",
@@ -79,21 +89,17 @@ aws iam put-role-policy \
 
 # Secrets Manager access for the managed client secret
 aws iam put-role-policy \
-  --role-name <EXECUTION_ROLE_NAME> \
-  --region us-east-1 \
+  --role-name "$EXECUTION_ROLE_NAME" \
   --policy-name obo-secrets \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "<SECRET_ARN_FROM_CREDENTIAL_PROVIDER_OUTPUT>"
+  --policy-document "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [{
+      \"Effect\": \"Allow\",
+      \"Action\": \"secretsmanager:GetSecretValue\",
+      \"Resource\": \"${SECRET_ARN}\"
     }]
-  }'
+  }"
 ```
-
-Replace `<SECRET_ARN_FROM_CREDENTIAL_PROVIDER_OUTPUT>` with the `clientSecretArn.secretArn`
-value from the `create-oauth2-credential-provider` response.
 
 ## Verify
 
