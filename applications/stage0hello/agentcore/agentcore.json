@@ -35,6 +35,9 @@
           "discoveryUrl": "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration",
           "allowedAudience": [
             "vault-standin"
+          ],
+          "allowedClients": [
+            "workshop-client"
           ]
         }
       },

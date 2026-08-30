@@ -27,6 +27,7 @@ def main() -> None:
     p.add_argument("--scopes", default="kb:read", help="Space-separated scopes")
     p.add_argument("--kid", default="stage2-key-1", help="Key id (must match jwks.json)")
     p.add_argument("--ttl", type=int, default=900, help="Token lifetime in seconds")
+    p.add_argument("--client-id", default="workshop-client", help="Client ID (must match Gateway allowedClients)")
     p.add_argument("--key", default="private.pem", help="Path to the signing private key")
     args = p.parse_args()
 
@@ -40,6 +41,8 @@ def main() -> None:
         "scope": args.scopes,
         "jti": str(uuid.uuid4()),
     }
+    if args.client_id:
+        claims["client_id"] = args.client_id
     key = open(args.key, "rb").read() if not args.key.startswith("-") else args.key
     token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": args.kid})
     print(token)
