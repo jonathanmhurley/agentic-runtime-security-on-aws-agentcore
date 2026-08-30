@@ -6,7 +6,7 @@ weight: 55
 ## What you'll prove
 
 The full **HashiCorp Vault Agentic pattern**: present a JWT, Vault validates it
-(JWKS + subject binding), and vends short-lived scoped AWS credentials — with no
+(JWKS + subject binding), and vends short-lived scoped AWS credentials with no
 standing privileges and a clear audit trail.
 
 This builds on Use Case 1's agent identity: the same JWT that Gateway validated is
@@ -18,10 +18,10 @@ dynamic secrets engine instead of an IAM execution role.
 1. **Mint a JWT** — signed with the workshop's RS256 keypair, carrying `sub: uc1-agent`,
    `aud: vault-standin`, and a unique `jti`.
 2. **Authenticate to Vault** — present the JWT to `auth/jwt/login`. Vault fetches the
-   public key from the GitHub-hosted JWKS, verifies the signature, checks `aud`,
+   public key from your mock server's JWKS, verifies the signature, checks `aud`,
    confirms `sub` matches the role's `bound_subject`, and returns a short-lived Vault
    token with the `uc1` policy.
-3. **Read scoped credentials** — use the Vault token to read `aws/sts/bedrock-reader`.
+3. **Vend scoped credentials** — use the Vault token to call `aws/sts/bedrock-reader`.
    Vault calls `sts:AssumeRole` into a scoped role and returns 15-minute STS credentials.
 4. **Access the protected resource** — use those credentials to call `bedrock:Retrieve`
    on the Knowledge Base.
@@ -35,62 +35,24 @@ dynamic secrets engine instead of an IAM execution role.
 
 ## Prerequisites
 
-- Vault Enterprise 2.0.4+ running and reachable (see `infrastructure/modules/vault_server/deploy-vault-dev.sh`)
-- JWT auth method enabled and configured (bootstrap commands below)
+These should already be completed from the [Deploy the foundation](../30-deploy-foundation/) steps:
+
+- Vault Enterprise running and reachable (`$VAULT_ADDR` and `$VAULT_TOKEN` set)
+- JWT auth method enabled and configured against your mock server's JWKS
 - AWS secrets engine with `bedrock-reader` role configured
-- The `uc1` policy: `path "aws/sts/bedrock-reader" { capabilities = ["read", "update"] }`
-
-## Vault bootstrap (one-time setup)
-
-```bash
-export VAULT_ADDR=http://<VAULT_IP>:8200
-export VAULT_TOKEN=<ROOT_TOKEN>
-
-# Enable JWT auth
-vault auth enable jwt
-
-# Configure to trust the workshop JWKS
-vault write auth/jwt/config \
-  jwks_url="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/jwks.json" \
-  default_role="uc1-agent"
-
-# Create the uc1-agent role (bound_subject = the Agent Registry equivalent)
-vault write auth/jwt/role/uc1-agent \
-  role_type="jwt" \
-  bound_audiences="vault-standin" \
-  bound_subject="uc1-agent" \
-  user_claim="sub" \
-  token_policies="uc1" \
-  token_ttl="15m"
-
-# Policy
-vault policy write uc1 - <<'EOF'
-path "aws/sts/bedrock-reader" { capabilities = ["read", "update"] }
-EOF
-
-# AWS secrets engine
-vault secrets enable -path=aws aws
-vault write aws/config/root \
-  access_key="<AWS_ACCESS_KEY>" \
-  secret_key="<AWS_SECRET_KEY>" \
-  region=us-east-1
-vault write aws/roles/bedrock-reader \
-  credential_type=assumed_role \
-  role_arns="arn:aws:iam::<ACCOUNT_ID>:role/Stage2VendedKBReadRole" \
-  default_sts_ttl=900
-```
+- `$ISSUER` and `$JWKS_URL` variables set from Step 3 of the foundation
 
 ## Step 1 — Mint a JWT
 
 ```bash
-cd applications/vault-standin
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/vault-standin
+
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
-  --iss "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin" \
-  --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
 ```
 
-> **Important:** the JWT must include a `jti` claim (unique per token). Vault 2.0.4
-> requires it for schema validation. `mint-jwt.py` adds this automatically.
+> **Note:** the JWT expires after 15 minutes. If you see "token is expired" in later
+> steps, re-mint with the command above.
 
 ## Step 2 — Authenticate to Vault
 
@@ -100,28 +62,31 @@ vault write auth/jwt/login role=uc1-agent jwt="$JWT"
 
 Expected: Vault returns a token with `token_policies: ["default", "uc1"]`.
 
-## Step 3 — Read scoped credentials
+## Step 3 — Vend scoped credentials
 
 ```bash
-VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")" \
-  vault read aws/sts/bedrock-reader
+export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
+vault write aws/sts/bedrock-reader ttl=15m
 ```
 
 Expected: STS credentials with `assumed-role/Stage2VendedKBReadRole/vault-jwt-uc1-agent-...`, TTL 15m.
 
-## Step 4 — Access the Knowledge Base
+## Step 4 — Access the Knowledge Base with Vault-vended credentials
 
 ```bash
-eval "$(vault write -format=json -field=token auth/jwt/login role=uc1-agent jwt="$JWT" | \
-  xargs -I{} vault read -format=json aws/sts/bedrock-reader | python3 -c "
+eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
 import sys, json
 d = json.load(sys.stdin)['data']
 print(f'export AWS_ACCESS_KEY_ID={d[\"access_key\"]}')
 print(f'export AWS_SECRET_ACCESS_KEY={d[\"secret_key\"]}')
 print(f'export AWS_SESSION_TOKEN={d[\"security_token\"]}')
 ")"
+
+KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
+  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+
 aws bedrock-agent-runtime retrieve \
-  --knowledge-base-id QLKOTZM2GC \
+  --knowledge-base-id "$KB_ID" \
   --retrieval-query '{"text":"What is RapidLane same-day SLA?"}' \
   --region us-east-1 --query "retrievalResults[0].content.text" --output text
 ```
@@ -132,8 +97,7 @@ Expected: the Meridian SLA answer (6 hours if booked before 11 AM).
 
 ```bash
 BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
-  --iss "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin" \
-  --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
 vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
 ```
 
@@ -150,11 +114,7 @@ JWT against the same JWKS; the difference is:
 |---|---|---|
 | Maturity | GA, stable | Beta (2.0.3+) |
 | Login step | Explicit `auth/jwt/login` → Vault token | Direct `X-Vault-Token` passthrough (no login step) |
-| Entity alias | Auto-created on first login | Manual pre-creation (undocumented, currently broken in 2.0.4) |
+| Entity alias | Auto-created on first login | Manual pre-creation (broken in 2.0.4) |
 | Allowlist | `bound_subject` on role | Agent Registry |
 | RAR support | No | Yes (`authorization_details` claim) |
 | Workshop fit | Excellent — authentication step is visible and teachable | Better for UC2/UC3 when RAR matters |
-
-The OAuth RS + Agent Registry is the target for UC2/UC3 (where delegation and RAR
-claims add value). For UC1's "does Vault validate my JWT and vend scoped creds?" proof,
-the JWT auth method is simpler, GA, and demonstrates the same security controls.
