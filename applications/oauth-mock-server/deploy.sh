@@ -107,11 +107,11 @@ if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
     ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'IntegrationId' --output text)
 
   aws apigatewayv2 create-route --api-id "$API_ID" \
-    --route-key '\$default' --target "integrations/${INTEGRATION_ID}" \
+    --route-key '$default' --target "integrations/${INTEGRATION_ID}" \
     ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
 
   aws apigatewayv2 create-stage --api-id "$API_ID" \
-    --stage-name '\$default' --auto-deploy \
+    --stage-name '$default' --auto-deploy \
     ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
 
   aws lambda add-permission --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
