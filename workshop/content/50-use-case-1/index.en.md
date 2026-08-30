@@ -44,6 +44,47 @@ curl -s -X POST "${GATEWAY_URL}/mcp" \
   | python3 -m json.tool
 ```
 
+## The Vault path (JWT → scoped STS credentials)
+
+The same JWT authenticates to Vault, which validates it, checks the `bound_subject`
+(the Agent Registry equivalent), and vends short-lived STS credentials scoped to KB read.
+
+### Try it
+
+```bash
+# Mint a fresh JWT (tokens expire after 15 minutes):
+JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+
+# Login to Vault — returns a scoped token with the uc1 policy:
+vault write auth/jwt/login role=uc1-agent jwt="$JWT"
+
+# Negative test — unregistered agent is denied:
+BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
+# Expected: "invalid subject (sub) claim"
+
+# Vend STS credentials and query the KB:
+export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
+
+KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
+  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+
+eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
+import sys, json
+d = json.load(sys.stdin)['data']
+print(f'export AWS_ACCESS_KEY_ID={d[\"access_key\"]}')
+print(f'export AWS_SECRET_ACCESS_KEY={d[\"secret_key\"]}')
+print(f'export AWS_SESSION_TOKEN={d[\"security_token\"]}')
+")"
+
+aws bedrock-agent-runtime retrieve \
+  --knowledge-base-id "$KB_ID" \
+  --retrieval-query '{"text":"What is RapidLane same-day SLA?"}' \
+  --region us-east-1 --query "retrievalResults[0].content.text" --output text
+```
+
 ## Design choice: managed Knowledge Base
 
 The KB uses **Amazon Bedrock managed embeddings** (zero-config). For a workshop about
@@ -54,13 +95,8 @@ keeps focus on identity and least-privilege.
 ## Control objectives established
 
 - **OBJ-1** — verifiable agent identity (JWT validated by Gateway via JWKS)
+- **OBJ-1** — same JWT validates against Vault (JWKS trust)
 - **OBJ-2** — no standing privileges (Gateway brokers the credential; caller never
-  holds `bedrock:Retrieve` directly)
+  holds `bedrock:Retrieve` directly; Vault vends short-lived STS creds)
 - **OBJ-4** — enforcement at the point of use (Gateway validates before routing)
-
-## What's next
-
-The next section proves the same flow through **real Vault Enterprise** — the JWT
-authenticates to Vault, Vault validates it, checks the `bound_subject` (the Agent
-Registry equivalent), and vends short-lived scoped STS credentials. Same agent
-identity, stronger governance.
+- **OBJ-5** — negative test proves unregistered agents are denied
