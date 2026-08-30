@@ -110,6 +110,10 @@ VAULT_IP=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1)
 export VAULT_ADDR="http://${VAULT_IP}:8200"
 export VAULT_TOKEN="workshop-root-token"
+
+# If vault command is not found, re-run the setup script:
+#   bash scripts/setup-cloudshell.sh
+
 vault status    # expect: Sealed=false, Version=2.0.4+ent
 
 # Enable JWT auth
@@ -129,6 +133,55 @@ curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
   -d '{"role_type":"jwt","bound_audiences":["vault-standin"],"bound_subject":"uc1-agent","user_claim":"sub","token_policies":["uc1"],"token_ttl":"15m"}'
 ```
 
+### Configure Vault's AWS secrets engine
+
+Vault needs an IAM user with static access keys (not session credentials) to call
+`sts:AssumeRole` and vend scoped credentials. Create the IAM user, a scoped role,
+and configure Vault:
+
+```bash
+cd ~/agentic-runtime-security-on-aws-agentcore
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
+  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+
+# Create IAM user for Vault's AWS secrets engine
+aws iam create-user --user-name vault-aws-engine 2>/dev/null || true
+aws iam put-user-policy --user-name vault-aws-engine --policy-name vault-sts \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Resource":"*"}]}'
+aws iam create-access-key --user-name vault-aws-engine --output json > /tmp/vault-keys.json
+VAULT_AWS_KEY=$(python3 -c "import json; d=json.load(open('/tmp/vault-keys.json')); print(d['AccessKey']['AccessKeyId'])")
+VAULT_AWS_SECRET=$(python3 -c "import json; d=json.load(open('/tmp/vault-keys.json')); print(d['AccessKey']['SecretAccessKey'])")
+
+# Create the scoped KB-read role that Vault will assume
+aws iam create-role --role-name Stage2VendedKBReadRole \
+  --assume-role-policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::${ACCOUNT}:user/vault-aws-engine\"},\"Action\":\"sts:AssumeRole\"}]}" 2>/dev/null || true
+aws iam put-role-policy --role-name Stage2VendedKBReadRole --policy-name kb-read \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"bedrock:Retrieve\",\"Resource\":\"arn:aws:bedrock:us-east-1:${ACCOUNT}:knowledge-base/${KB_ID}\"}]}"
+
+echo "Waiting 10s for IAM propagation..."
+sleep 10
+
+# Enable Vault AWS secrets engine
+vault secrets enable aws 2>/dev/null || true
+vault write aws/config/root \
+  access_key="$VAULT_AWS_KEY" \
+  secret_key="$VAULT_AWS_SECRET" \
+  region=us-east-1
+
+vault write aws/roles/bedrock-reader \
+  role_arns="arn:aws:iam::${ACCOUNT}:role/Stage2VendedKBReadRole" \
+  credential_type=assumed_role \
+  default_sts_ttl=15m
+
+# Create the uc1 policy (allows vending STS creds)
+vault policy write uc1 - <<'EOF'
+path "aws/sts/bedrock-reader" {
+  capabilities = ["update"]
+}
+EOF
+```
+
 ## What you now have
 
 - An agent on AgentCore Runtime with a workload identity
@@ -136,6 +189,7 @@ curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
 - A self-hosted keypair + mock OAuth server (your JWKS, your keys)
 - A Gateway that validates JWTs via your mock server's OIDC discovery
 - Vault Enterprise validating JWTs against the same JWKS
+- Vault AWS secrets engine configured to vend scoped KB-read credentials
 - All JWT verification uses YOUR keypair — self-contained, no external dependencies
 
 The following sections demonstrate how these components enforce the security

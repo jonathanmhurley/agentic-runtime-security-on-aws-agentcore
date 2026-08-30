@@ -13,7 +13,7 @@ cd applications/stage0hello
 
 # Alice
 aws lambda invoke --function-name oauth-mock-server \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{"username":"alice@example.com"}' \
   /tmp/alice-jwt.json >/dev/null
@@ -22,7 +22,7 @@ ALICE_JWT=$(python3 -c "import json; r=json.load(open('/tmp/alice-jwt.json')); p
 
 # Bob
 aws lambda invoke --function-name oauth-mock-server \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{"username":"bob@example.com"}' \
   /tmp/bob-jwt.json >/dev/null
@@ -33,7 +33,7 @@ BOB_JWT=$(python3 -c "import json; r=json.load(open('/tmp/bob-jwt.json')); print
 ## Test Alice (should succeed)
 
 ```bash
-AWS_PROFILE=agenticvault agentcore invoke --bearer-token "$ALICE_JWT" "What is RapidLane's SLA?"
+agentcore invoke --bearer-token "$ALICE_JWT" "What is RapidLane's SLA?"
 ```
 
 Expected: The agent returns a detailed answer from the Knowledge Base, including the
@@ -42,7 +42,7 @@ Expected: The agent returns a detailed answer from the Knowledge Base, including
 ## Test Bob (should fail)
 
 ```bash
-AWS_PROFILE=agenticvault agentcore invoke --bearer-token "$BOB_JWT" "What is RapidLane's SLA?"
+agentcore invoke --bearer-token "$BOB_JWT" "What is RapidLane's SLA?"
 ```
 
 Expected: The agent returns an error. The agent code has `VAULT_JWT_ROLE` defaulting

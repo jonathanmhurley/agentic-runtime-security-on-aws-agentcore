@@ -44,19 +44,22 @@ and creates the deployment target config for your account:
 git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
 cd agentic-runtime-security-on-aws-agentcore
 bash scripts/setup-cloudshell.sh
-export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"
 ```
 
+The setup script adds PATH to `~/.bashrc` so new CloudShell tabs pick it up automatically.
+
 > **CloudShell timeout note:** `/tmp` is ephemeral. If your CloudShell session
-> times out (~20 min idle), re-run `bash scripts/setup-cloudshell.sh` and the
-> `export PATH` line. Your repo clone and home directory files persist.
+> times out (~20 min idle), re-run `bash scripts/setup-cloudshell.sh` to
+> reinstall the tools. Your repo clone and home directory files persist.
 
 <details>
 <summary>What the setup script does (expand for details)</summary>
 
 1. Installs the AgentCore CLI to `/tmp/npm-global` (CloudShell home is ~1GB, too small for a global npm install)
 2. Installs `uv` (Python package manager used by `agentcore deploy`)
-3. Creates `agentcore/aws-targets.json` in `applications/stage0hello/` with your account ID and `us-east-1`
+3. Installs the Vault CLI (OSS 1.18.4) to `/tmp/npm-global/bin/`
+4. Adds PATH to `~/.bashrc` so new terminal tabs pick it up
+5. Creates `agentcore/aws-targets.json` in `applications/stage0hello/` with your account ID and `us-east-1`
 
 </details>
 

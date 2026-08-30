@@ -35,7 +35,7 @@ GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways --region us-east-1 \
 GATEWAY_URL="https://${GATEWAY_ID}.gateway.bedrock-agentcore.us-east-1.amazonaws.com"
 
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 
 curl -s -X POST "${GATEWAY_URL}/mcp" \
   -H "Authorization: Bearer $JWT" \
@@ -54,14 +54,14 @@ The same JWT authenticates to Vault, which validates it, checks the `bound_subje
 ```bash
 # Mint a fresh JWT (tokens expire after 15 minutes):
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 
 # Login to Vault — returns a scoped token with the uc1 policy:
 vault write auth/jwt/login role=uc1-agent jwt="$JWT"
 
 # Negative test — unregistered agent is denied:
 BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
 # Expected: "invalid subject (sub) claim"
 
@@ -70,6 +70,10 @@ KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
   --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
 
 # Login to Vault and vend STS creds:
+# (mint a fresh JWT — the earlier one may have been consumed by the login test)
+JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
+
 export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
 
 eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
@@ -91,6 +95,7 @@ aws bedrock-agent-runtime retrieve \
 # access) instead of your workshop participant role. Unset them now to restore
 # full permissions for the remaining workshop steps.
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+export VAULT_TOKEN="workshop-root-token"
 ```
 
 ## Design choice: managed Knowledge Base

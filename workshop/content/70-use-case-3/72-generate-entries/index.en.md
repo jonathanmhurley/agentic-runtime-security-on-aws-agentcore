@@ -10,7 +10,7 @@ This generates audit entries for a successful authentication + credential vend:
 ```bash
 # Mint Alice's JWT:
 aws lambda invoke --function-name oauth-mock-server \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{"username":"alice@example.com"}' \
   /tmp/alice-jwt.json >/dev/null
@@ -40,7 +40,7 @@ Bob authenticates successfully but is denied at the STS vend step:
 
 ```bash
 aws lambda invoke --function-name oauth-mock-server \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{"username":"bob@example.com"}' \
   /tmp/bob-jwt.json >/dev/null

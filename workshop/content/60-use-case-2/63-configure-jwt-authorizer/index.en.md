@@ -40,7 +40,7 @@ in the `runtimes` array, add `authorizerType` and `authorizerConfiguration`:
       "authorizerType": "CUSTOM_JWT",
       "authorizerConfiguration": {
         "customJwtAuthorizer": {
-          "discoveryUrl": "<FUNCTION_URL>/.well-known/openid-configuration",
+          "discoveryUrl": "<MOCK_SERVER_URL>/.well-known/openid-configuration",
           "allowedAudience": [
             "vault-standin"
           ]
@@ -54,14 +54,15 @@ in the `runtimes` array, add `authorizerType` and `authorizerConfiguration`:
 {{% notice tip %}}
 The authorizer **must** be in `agentcore.json`, not applied via the CLI
 `update-agent-runtime` command. CDK overwrites the runtime config from
-`agentcore.json` on every deploy, so manual changes are lost.
+`agentcore.json` on every deploy, so manual changes are lost. Replace
+`<MOCK_SERVER_URL>` with your actual API Gateway URL before deploying.
 {{% /notice %}}
 
 Deploy the updated config:
 
 ```bash
 cd applications/stage0hello
-AWS_PROFILE=agenticvault agentcore deploy --yes
+agentcore deploy --yes
 ```
 
 ## What happens at request time
@@ -80,15 +81,14 @@ The agent can then use the WAT in downstream calls (next step).
 Mint a user JWT via the mock server and invoke:
 
 ```bash
-aws lambda invoke --function-name oauth-mock-server \
-  --profile agenticvault --region us-east-1 \
+aws lambda invoke --function-name oauth-mock-server --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{"username":"alice@example.com"}' \
   /tmp/user-jwt.json >/dev/null
 
 USER_JWT=$(python3 -c "import json; r=json.load(open('/tmp/user-jwt.json')); print(r.get('access_token') or json.loads(r.get('body','{}')).get('access_token',''))")
 
-AWS_PROFILE=agenticvault agentcore invoke --bearer-token "$USER_JWT" "hello"
+agentcore invoke --bearer-token "$USER_JWT" "hello"
 ```
 
 If the authorizer is misconfigured, you'll get an `Unauthorized` error before the
@@ -101,5 +101,5 @@ was accepted.
 |---------|-------|-----|
 | `Authorization method mismatch` | Config not deployed | Re-run `agentcore deploy` |
 | `Unauthorized` immediately | Audience mismatch | Check `allowedAudience` matches the `aud` claim in your JWT |
-| `Unauthorized` immediately | JWKS unreachable | Confirm `curl <FUNCTION_URL>/.well-known/openid-configuration` returns JSON |
+| `Unauthorized` immediately | JWKS unreachable | Confirm `curl $MOCK_SERVER_URL/.well-known/openid-configuration` returns JSON |
 | Agent runs but no WAT | Authorizer not in `agentcore.json` | Verify the `authorizerType` field is present in the runtime entry, redeploy |

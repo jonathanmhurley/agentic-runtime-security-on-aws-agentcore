@@ -12,28 +12,32 @@ token from that endpoint.
 
 ## Create the credential provider
 
+> **Variables required:** `$MOCK_SERVER_URL` must be set from the
+> [Deploy the foundation](../../30-deploy-foundation/) or
+> [Deploy the mock server](../61-deploy-mock-server/) steps.
+
 ```bash
 aws bedrock-agentcore-control create-oauth2-credential-provider \
-  --profile agenticvault --region us-east-1 \
-  --cli-input-json '{
-  "name": "workshop-obo-vault",
-  "credentialProviderVendor": "CustomOauth2",
-  "oauth2ProviderConfigInput": {
-    "customOauth2ProviderConfig": {
-      "oauthDiscovery": {
-        "authorizationServerMetadata": {
-          "issuer": "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin",
-          "authorizationEndpoint": "<FUNCTION_URL>/token",
-          "tokenEndpoint": "<FUNCTION_URL>/token"
+  --region us-east-1 \
+  --cli-input-json "{
+  \"name\": \"workshop-obo-vault\",
+  \"credentialProviderVendor\": \"CustomOauth2\",
+  \"oauth2ProviderConfigInput\": {
+    \"customOauth2ProviderConfig\": {
+      \"oauthDiscovery\": {
+        \"authorizationServerMetadata\": {
+          \"issuer\": \"${MOCK_SERVER_URL}\",
+          \"authorizationEndpoint\": \"${MOCK_SERVER_URL}/token\",
+          \"tokenEndpoint\": \"${MOCK_SERVER_URL}/token\"
         }
       },
-      "clientId": "workshop-obo-client",
-      "clientSecret": "<CLIENT_SECRET>",
-      "clientAuthenticationMethod": "CLIENT_SECRET_BASIC",
-      "onBehalfOfTokenExchangeConfig": { "grantType": "JWT_AUTHORIZATION_GRANT" }
+      \"clientId\": \"workshop-obo-client\",
+      \"clientSecret\": \"workshop-obo-secret-1\",
+      \"clientAuthenticationMethod\": \"CLIENT_SECRET_BASIC\",
+      \"onBehalfOfTokenExchangeConfig\": { \"grantType\": \"JWT_AUTHORIZATION_GRANT\" }
     }
   }
-}'
+}"
 ```
 
 Key decisions:
@@ -57,7 +61,7 @@ The runtime's execution role needs two additional policies. Add them with `put-r
 # OBO Identity permissions
 aws iam put-role-policy \
   --role-name <EXECUTION_ROLE_NAME> \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --policy-name obo-identity \
   --policy-document '{
     "Version": "2012-10-17",
@@ -76,7 +80,7 @@ aws iam put-role-policy \
 # Secrets Manager access for the managed client secret
 aws iam put-role-policy \
   --role-name <EXECUTION_ROLE_NAME> \
-  --profile agenticvault --region us-east-1 \
+  --region us-east-1 \
   --policy-name obo-secrets \
   --policy-document '{
     "Version": "2012-10-17",
@@ -96,7 +100,7 @@ value from the `create-oauth2-credential-provider` response.
 ```bash
 aws bedrock-agentcore-control get-oauth2-credential-provider \
   --name workshop-obo-vault \
-  --profile agenticvault --region us-east-1
+  --region us-east-1
 ```
 
 Confirm `workshop-obo-vault` appears with status `READY`.

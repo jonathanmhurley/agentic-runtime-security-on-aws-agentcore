@@ -48,7 +48,7 @@ These should already be completed from the [Deploy the foundation](../30-deploy-
 cd ~/agentic-runtime-security-on-aws-agentcore/applications/vault-standin
 
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 ```
 
 > **Note:** the JWT expires after 15 minutes. If you see "token is expired" in later
@@ -73,6 +73,10 @@ KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
   --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
 
 # Login to Vault and vend STS creds:
+# (mint a fresh JWT — the Step 2 login consumed the earlier one)
+JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
+
 export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
 
 eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
@@ -95,6 +99,7 @@ aws bedrock-agent-runtime retrieve \
 # access) instead of your workshop participant role. Unset them now to restore
 # full permissions for the remaining workshop steps.
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+export VAULT_TOKEN="workshop-root-token"
 ```
 
 Expected: the Meridian SLA answer (6 hours if booked before 11 AM).
@@ -103,7 +108,7 @@ Expected: the Meridian SLA answer (6 hours if booked before 11 AM).
 
 ```bash
 BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900)"
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
 ```
 

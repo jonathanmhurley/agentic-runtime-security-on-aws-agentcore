@@ -44,6 +44,12 @@ fi
 echo "[4/5] Updating PATH..."
 export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"
 
+# Persist PATH in ~/.bashrc so new CloudShell tabs pick it up automatically
+if ! grep -q '/tmp/npm-global/bin' ~/.bashrc 2>/dev/null; then
+  echo 'export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+  echo "  Added PATH to ~/.bashrc"
+fi
+
 # 5. aws-targets.json for stage0hello
 echo "[5/5] Creating aws-targets.json..."
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -61,11 +67,5 @@ echo ""
 echo "=== Setup complete ==="
 echo "  Account: $ACCOUNT_ID"
 echo "  Region:  $REGION"
-echo ""
-echo "  IMPORTANT: Run this in your current shell to update PATH:"
-echo "    export PATH=\"/tmp/npm-global/bin:\$HOME/.local/bin:\$PATH\""
-echo ""
-echo "  Or re-source by running:"
-echo "    source <(echo 'export PATH=\"/tmp/npm-global/bin:\$HOME/.local/bin:\$PATH\"')"
 echo ""
 echo "  Next: cd applications/stage0hello && agentcore deploy"
