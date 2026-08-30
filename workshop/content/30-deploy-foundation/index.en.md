@@ -56,13 +56,14 @@ cd ../oauth-mock-server
 bash deploy.sh
 ```
 
-Note the **Function URL** from the deploy output. Set it as a variable:
+Note the **API Gateway URL** from the deploy output. Set it as a variable:
 
 ```bash
-MOCK_SERVER_URL="<paste Function URL from deploy output, no trailing slash>"
+MOCK_SERVER_URL="<paste API Gateway URL from deploy output, no trailing slash>"
 OIDC_DISCOVERY_URL="${MOCK_SERVER_URL}/.well-known/openid-configuration"
 JWKS_URL="${MOCK_SERVER_URL}/jwks.json"
-ISSUER="https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin"
+# ISSUER must match the APIGW URL (OIDC spec requires issuer = discovery URL prefix)
+ISSUER="${MOCK_SERVER_URL}"
 
 # Verify discovery + JWKS:
 curl -s "$OIDC_DISCOVERY_URL" | python3 -m json.tool
@@ -99,7 +100,7 @@ vim vault.hclic
 bash deploy-vault-dev.sh
 ```
 
-Wait ~90 seconds for Vault to start, then set the Vault address:
+Wait ~90 seconds for Vault to start, then configure:
 
 ```bash
 VAULT_IP=$(aws ec2 describe-instances \
@@ -107,19 +108,15 @@ VAULT_IP=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1)
 export VAULT_ADDR="http://${VAULT_IP}:8200"
 export VAULT_TOKEN="workshop-root-token"
-echo "Vault: $VAULT_ADDR"
-```
+vault status    # expect: Sealed=false, Version=2.0.4+ent
 
-Configure JWT auth — Vault validates JWTs against your mock server's JWKS:
-
-```bash
-# Enable JWT auth method
-# Note: if you see "path is already in use at jwt/" — that's fine,
-# it means JWT auth was already enabled. Continue to the next command.
+# Enable JWT auth
+# Note: if you see "path is already in use at jwt/" — that's fine, it means
+# JWT auth was already enabled. Continue to the next command.
 curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
   "$VAULT_ADDR/v1/sys/auth/jwt" -d '{"type":"jwt"}'
 
-# Configure JWKS (pointing at YOUR mock server, not GitHub)
+# Point Vault at your mock server's JWKS
 curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
   "$VAULT_ADDR/v1/auth/jwt/config" \
   -d "{\"jwks_url\":\"$JWKS_URL\",\"default_role\":\"uc1-agent\"}"
