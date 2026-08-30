@@ -14,6 +14,97 @@ The agent tool `retrieve_from_kb_as_user` performs four actions in sequence:
 
 Each step fails fast if the previous one returned an error.
 
+## Configure Vault for per-user authorization
+
+Create per-user JWT roles and policies in Vault. Alice is allowed to vend KB
+credentials; Bob is denied:
+
+```bash
+# Create per-user policies
+vault policy write alice-kb - <<'EOF'
+path "aws/sts/bedrock-reader" {
+  capabilities = ["update"]
+}
+EOF
+
+vault policy write bob-kb - <<'EOF'
+path "aws/sts/bedrock-reader" {
+  capabilities = ["deny"]
+}
+EOF
+
+# Create per-user JWT roles (bound_subject must match the OBO token's sub claim)
+vault write auth/jwt/role/alice-user \
+  role_type=jwt \
+  bound_audiences=vault-standin \
+  bound_subject=alice@example.com \
+  user_claim=sub \
+  token_policies=alice-kb \
+  token_ttl=15m
+
+vault write auth/jwt/role/bob-user \
+  role_type=jwt \
+  bound_audiences=vault-standin \
+  bound_subject=bob@example.com \
+  user_claim=sub \
+  token_policies=bob-kb \
+  token_ttl=15m
+
+# Verify
+vault read auth/jwt/role/alice-user -format=json | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f'alice-user: bound_subject={d[\"bound_subject\"]}, policies={d[\"token_policies\"]}')"
+vault read auth/jwt/role/bob-user -format=json | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f'bob-user: bound_subject={d[\"bound_subject\"]}, policies={d[\"token_policies\"]}')"
+```
+
+## Open Vault to AgentCore Runtime
+
+AgentCore Runtime has `PUBLIC` network mode — its outbound calls come from
+AWS-managed IPs, not your CloudShell IP. The Vault security group must allow
+inbound on port 8200 from `0.0.0.0/0`:
+
+```bash
+SG_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=vault-enterprise-dev" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text --region us-east-1)
+
+aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --region us-east-1 \
+  --ip-permissions "IpProtocol=tcp,FromPort=8200,ToPort=8200,IpRanges=[{CidrIp=0.0.0.0/0,Description=AgentCore-Runtime-egress}]" 2>/dev/null || true
+
+echo "SG $SG_ID: port 8200 open to 0.0.0.0/0 (for AgentCore Runtime)"
+```
+
+> **Production note:** In production, use a VPC endpoint or private connectivity
+> instead of `0.0.0.0/0`. For this workshop, the open rule is acceptable.
+
+## Patch the agent code with your Vault IP
+
+The agent code defaults `VAULT_ADDR` to a placeholder. Patch it with your Vault
+instance's IP:
+
+```bash
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/stage0hello
+
+VAULT_IP=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=vault-enterprise-dev" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region us-east-1)
+
+python3 -c "
+import re
+with open('app/stage0hello/main.py') as f:
+    code = f.read()
+code = re.sub(
+    r'VAULT_ADDR = os\.getenv\(\"VAULT_ADDR\", \"http://[^\"]+\"\)',
+    'VAULT_ADDR = os.getenv(\"VAULT_ADDR\", \"http://${VAULT_IP}:8200\")',
+    code
+)
+with open('app/stage0hello/main.py', 'w') as f:
+    f.write(code)
+print('Patched VAULT_ADDR to http://${VAULT_IP}:8200')
+"
+
+# Verify
+grep 'VAULT_ADDR =' app/stage0hello/main.py | head -1
+```
+
 ## How the workload access token reaches the tool
 
 AgentCore Runtime injects the WAT as a request header. The entrypoint captures it
@@ -36,93 +127,6 @@ async def invoke(payload, context):
     # ... rest of entrypoint
 ```
 
-## Agent code
-
-The full tool lives in `applications/stage0hello/app/stage0hello/main.py`. Here is
-the core logic:
-
-```python
-import urllib.request
-import json
-import base64
-import os
-import boto3
-from bedrock_agentcore.services.identity import IdentityClient
-from strands import Agent, tool
-
-OBO_PROVIDER_NAME = os.getenv("OBO_PROVIDER_NAME", "workshop-obo-vault")
-VAULT_ADDR = os.getenv("VAULT_ADDR", "http://<VAULT_IP>:8200")
-VAULT_JWT_ROLE = os.getenv("VAULT_JWT_ROLE", "alice-user")
-VAULT_STS_ROLE = os.getenv("VAULT_STS_ROLE", "bedrock-reader")
-VAULT_STS_TTL = os.getenv("VAULT_STS_TTL", "15m")
-BEDROCK_KB_ID = os.getenv("BEDROCK_KB_ID", "<YOUR_KB_ID>")
-
-@tool
-def retrieve_from_kb_as_user(query: str) -> list:
-    """Retrieve from KB using per-user Vault-vended credentials."""
-
-    global _current_workload_access_token
-    if not _current_workload_access_token:
-        return [{"error": "No workload access token available."}]
-
-    # Step 1: OBO exchange
-    identity_client = IdentityClient("us-east-1")
-    obo_response = identity_client.get_resource_oauth2_token(
-        resource_credential_provider_name=OBO_PROVIDER_NAME,
-        oauth2_flow="ON_BEHALF_OF_TOKEN_EXCHANGE",
-        scopes=["kb:read"],
-        workload_identity_token=_current_workload_access_token,
-    )
-    obo_token = obo_response["accessToken"]
-
-    # Decode user identity from the OBO token
-    parts = obo_token.split(".")
-    payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
-    user_claims = json.loads(base64.b64decode(payload_b64))
-    username = user_claims.get("sub", "unknown")
-
-    # Step 2: Vault JWT login
-    vault_payload = json.dumps({"role": VAULT_JWT_ROLE, "jwt": obo_token}).encode()
-    req = urllib.request.Request(
-        f"{VAULT_ADDR}/v1/auth/jwt/login",
-        data=vault_payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        vault_data = json.loads(resp.read())
-    vault_token = vault_data["auth"]["client_token"]
-
-    # Step 3: Vault STS credentials
-    sts_payload = json.dumps({"ttl": VAULT_STS_TTL}).encode()
-    req = urllib.request.Request(
-        f"{VAULT_ADDR}/v1/aws/sts/{VAULT_STS_ROLE}",
-        data=sts_payload,
-        headers={"Content-Type": "application/json", "X-Vault-Token": vault_token},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        sts_data = json.loads(resp.read())
-    creds = sts_data["data"]
-
-    # Step 4: Query KB with user-scoped credentials
-    kb_client = boto3.client(
-        "bedrock-agent-runtime",
-        aws_access_key_id=creds["access_key"],
-        aws_secret_access_key=creds["secret_key"],
-        aws_session_token=creds["security_token"],
-        region_name="us-east-1",
-    )
-    kb_resp = kb_client.retrieve(
-        knowledgeBaseId=BEDROCK_KB_ID,
-        retrievalQuery={"text": query},
-    )
-    return [
-        {"text": r.get("content", {}).get("text", ""), "score": r.get("score"), "user": username}
-        for r in kb_resp.get("retrievalResults", [])
-    ]
-```
-
 ## Implementation notes
 
 - **No `context` parameter on the tool.** Strands tools receive only their declared
@@ -135,7 +139,26 @@ def retrieve_from_kb_as_user(query: str) -> list:
 
 ## Deploy
 
+Re-grant the execution role permissions (CDK redeploys can strip manually-added
+policies), then deploy:
+
 ```bash
-cd applications/stage0hello
+EXECUTION_ROLE_NAME=$(aws iam list-roles \
+  --query "Roles[?starts_with(RoleName,'AgentCore-stage0hello') && contains(RoleName,'Application')].RoleName | [0]" \
+  --output text)
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
+  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+SECRET_ARN=$(aws bedrock-agentcore-control get-oauth2-credential-provider \
+  --name workshop-obo-vault --region us-east-1 \
+  --query 'clientSecretArn.secretArn' --output text)
+
+aws iam put-role-policy --role-name "$EXECUTION_ROLE_NAME" --policy-name kb-read \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"bedrock:Retrieve\",\"Resource\":\"arn:aws:bedrock:us-east-1:${ACCOUNT}:knowledge-base/${KB_ID}\"}]}"
+aws iam put-role-policy --role-name "$EXECUTION_ROLE_NAME" --policy-name obo-identity \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["bedrock-agentcore:GetResourceOauth2Token","bedrock-agentcore:GetWorkloadAccessToken","bedrock-agentcore:GetWorkloadAccessTokenForJWT","bedrock-agentcore:GetWorkloadAccessTokenForUserId"],"Resource":"*"}]}'
+aws iam put-role-policy --role-name "$EXECUTION_ROLE_NAME" --policy-name obo-secrets \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"${SECRET_ARN}\"}]}"
+
 agentcore deploy --yes
 ```
