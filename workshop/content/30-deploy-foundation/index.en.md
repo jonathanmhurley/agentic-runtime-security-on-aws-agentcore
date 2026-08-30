@@ -90,17 +90,12 @@ the KB target Lambda wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound a
 
 ## Step 5 — Deploy Vault Enterprise
 
-Before deploying, place your Vault Enterprise license file:
-
-```bash
-# Paste your .hclic license content into this file (gitignored):
-vi infrastructure/modules/vault_server/vault.hclic
-```
-
-Then deploy:
-
 ```bash
 cd ../../infrastructure/modules/vault_server
+
+# Paste your Vault Enterprise license into this file (gitignored):
+vim vault.hclic
+
 bash deploy-vault-dev.sh
 ```
 

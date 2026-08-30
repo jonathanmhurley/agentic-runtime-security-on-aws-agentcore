@@ -59,8 +59,24 @@ the OBO token exchange.
 # The KB ID is a workshop resource identifier (not a secret). Falls back to the
 # known Stage 1 Meridian KB since this CLI version does not inject agentcore.json
 # environmentVariables onto the runtime.
-_DEFAULT_KB_ID = "QLKOTZM2GC"  # stage1-meridian-kb (managed KB, us-east-1)
-BEDROCK_KB_ID = os.getenv("BEDROCK_KB_ID") or _DEFAULT_KB_ID
+def _discover_kb_id():
+    """Auto-discover the Meridian KB ID, falling back to env var or hardcoded default."""
+    kb_id = os.getenv("BEDROCK_KB_ID")
+    if kb_id:
+        return kb_id
+    # Auto-discover from list-knowledge-bases (matches the Meridian KB name)
+    try:
+        import boto3 as _boto3
+        client = _boto3.client("bedrock-agent")
+        resp = client.list_knowledge_bases()
+        for kb in resp.get("knowledgeBaseSummaries", []):
+            if "meridian" in kb.get("name", "").lower():
+                return kb["knowledgeBaseId"]
+    except Exception:
+        pass
+    return "QLKOTZM2GC"  # fallback to dev account KB
+
+BEDROCK_KB_ID = _discover_kb_id()
 
 
 @tool
