@@ -65,11 +65,12 @@ BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
 vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
 # Expected: "invalid subject (sub) claim"
 
-# Vend STS credentials and query the KB:
-export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
-
+# Get KB ID before Vault STS creds override your shell credentials:
 KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
   --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+
+# Login to Vault and vend STS creds:
+export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
 
 eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
 import sys, json
@@ -83,6 +84,13 @@ aws bedrock-agent-runtime retrieve \
   --knowledge-base-id "$KB_ID" \
   --retrieval-query '{"text":"What is RapidLane same-day SLA?"}' \
   --region us-east-1 --query "retrievalResults[0].content.text" --output text
+
+# IMPORTANT: The eval above exported Vault-vended STS credentials into your
+# shell environment. These override CloudShell's default credentials, so any
+# subsequent AWS CLI calls would run as Stage2VendedKBReadRole (read-only KB
+# access) instead of your workshop participant role. Unset them now to restore
+# full permissions for the remaining workshop steps.
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 ```
 
 ## Design choice: managed Knowledge Base

@@ -62,18 +62,19 @@ vault write auth/jwt/login role=uc1-agent jwt="$JWT"
 
 Expected: Vault returns a token with `token_policies: ["default", "uc1"]`.
 
-## Step 3 — Vend scoped credentials
+## Step 3 — Vend scoped credentials and query the KB
+
+Look up the KB ID first (before Vault STS creds override your shell credentials),
+then login, vend, and retrieve in one flow:
 
 ```bash
+# Get KB ID while CloudShell default creds are still active:
+KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
+  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
+
+# Login to Vault and vend STS creds:
 export VAULT_TOKEN="$(vault write -field=token auth/jwt/login role=uc1-agent jwt="$JWT")"
-vault write aws/sts/bedrock-reader ttl=15m
-```
 
-Expected: STS credentials with `assumed-role/Stage2VendedKBReadRole/vault-jwt-uc1-agent-...`, TTL 15m.
-
-## Step 4 — Access the Knowledge Base with Vault-vended credentials
-
-```bash
 eval "$(vault write -format=json aws/sts/bedrock-reader ttl=15m | python3 -c "
 import sys, json
 d = json.load(sys.stdin)['data']
@@ -82,13 +83,18 @@ print(f'export AWS_SECRET_ACCESS_KEY={d[\"secret_key\"]}')
 print(f'export AWS_SESSION_TOKEN={d[\"security_token\"]}')
 ")"
 
-KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
-  --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
-
+# Query KB with Vault-vended creds:
 aws bedrock-agent-runtime retrieve \
   --knowledge-base-id "$KB_ID" \
   --retrieval-query '{"text":"What is RapidLane same-day SLA?"}' \
   --region us-east-1 --query "retrievalResults[0].content.text" --output text
+
+# IMPORTANT: The eval above exported Vault-vended STS credentials into your
+# shell environment. These override CloudShell's default credentials, so any
+# subsequent AWS CLI calls would run as Stage2VendedKBReadRole (read-only KB
+# access) instead of your workshop participant role. Unset them now to restore
+# full permissions for the remaining workshop steps.
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 ```
 
 Expected: the Meridian SLA answer (6 hours if booked before 11 AM).

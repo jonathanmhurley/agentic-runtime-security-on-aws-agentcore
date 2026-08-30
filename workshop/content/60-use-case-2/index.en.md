@@ -3,6 +3,14 @@ title: 'Use Case 2 — Per-user authorization via OBO + Vault'
 weight: 60
 ---
 
+> **Before you start:** If you just completed UC1's Vault STS vend, clear the
+> Vault-vended credentials and reset your Vault token:
+> ```bash
+> unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+> export VAULT_TOKEN="workshop-root-token"
+> aws sts get-caller-identity    # confirm WSParticipantRole, not Stage2VendedKBReadRole
+> ```
+
 ## What you'll prove
 
 The same agent from UC1 now acts **on behalf of an authenticated user**. User

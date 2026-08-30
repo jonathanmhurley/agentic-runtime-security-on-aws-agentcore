@@ -22,7 +22,7 @@ The mock server:
 ## Deploy
 
 ```bash
-cd applications/oauth-mock-server
+cd ~/agentic-runtime-security-on-aws-agentcore/applications/oauth-mock-server
 bash deploy.sh
 ```
 
