@@ -90,8 +90,42 @@ fi
 # Remove trailing slash for cleaner URL construction
 FURL="${FURL%/}"
 
-# 6. Update TOKEN_ENDPOINT env var now that we know the Function URL
-ENVJSON=$(_build_env_json "${FURL}/token")
+
+# 6. API Gateway HTTP API (reliable public endpoint — Function URLs blocked on some accounts)
+API_NAME=oauth-mock-api
+API_ID=$(aws apigatewayv2 get-apis ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
+  --query "Items[?Name=='${API_NAME}'].ApiId | [0]" --output text 2>/dev/null || echo "None")
+
+if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
+  echo "[oauth-mock] Creating API Gateway HTTP API..."
+  API_ID=$(aws apigatewayv2 create-api --name "$API_NAME" --protocol-type HTTP \
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'ApiId' --output text)
+
+  INTEGRATION_ID=$(aws apigatewayv2 create-integration --api-id "$API_ID" \
+    --integration-type AWS_PROXY --integration-uri "$LAMBDA_ARN" \
+    --payload-format-version "2.0" \
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" --query 'IntegrationId' --output text)
+
+  aws apigatewayv2 create-route --api-id "$API_ID" \
+    --route-key '\$default' --target "integrations/${INTEGRATION_ID}" \
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
+
+  aws apigatewayv2 create-stage --api-id "$API_ID" \
+    --stage-name '\$default' --auto-deploy \
+    ${PROFILE:+--profile "$PROFILE"} --region "$REGION" >/dev/null
+
+  aws lambda add-permission --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
+    --statement-id ApiGatewayInvoke --action lambda:InvokeFunction \
+    --principal apigateway.amazonaws.com \
+    --source-arn "arn:aws:execute-api:${REGION}:${ACCOUNT}:${API_ID}/*" 2>/dev/null || true
+else
+  echo "[oauth-mock] API Gateway already exists: $API_ID"
+fi
+
+API_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com"
+
+# 7. Update TOKEN_ENDPOINT to APIGW URL (reliable, not blocked by org SCPs)
+ENVJSON=$(_build_env_json "${API_URL}/token")
 aws lambda wait function-updated --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 aws lambda update-function-configuration --function-name "$FN" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
   --environment "$ENVJSON" >/dev/null
@@ -100,37 +134,14 @@ echo
 echo "============================================================"
 echo "  OAuth Mock Server deployed."
 echo "    Function: $FN ($LAMBDA_ARN)"
-echo "    Function URL: $FURL"
-echo "    Token endpoint: ${FURL}/token"
-echo "    Discovery: ${FURL}/.well-known/openid-configuration"
+echo "    API Gateway: $API_URL"
+echo "    Token endpoint: ${API_URL}/token"
+echo "    Discovery: ${API_URL}/.well-known/openid-configuration"
+echo "    JWKS: ${API_URL}/jwks.json"
 echo "    Client ID: $CLIENT_ID"
-echo "    Issuer: same as workshop JWKS issuer"
 echo ""
-echo "  Test (Function URL, OAuth grant):"
-echo "    curl -s -X POST ${FURL}/token \\"
+echo "  Test:"
+echo "    curl -s -X POST ${API_URL}/token \\"
 echo "      -u '${CLIENT_ID}:${CLIENT_SECRET}' \\"
 echo "      -d 'grant_type=client_credentials' | python3 -m json.tool"
-echo ""
-echo "  Test (direct invoke, Phase A compat):"
-echo "    aws lambda invoke --function-name $FN --payload '{\"username\":\"alice@example.com\"}' /tmp/token.json ${PROFILE:+--profile $PROFILE} --region $REGION"
-echo ""
-echo "  Register with AgentCore (Phase B):"
-echo "    aws bedrock-agentcore-control create-oauth2-credential-provider \\"
-echo "      ${PROFILE:+--profile $PROFILE} --region $REGION \\"
-echo "      --cli-input-json '{"
-echo "      \"name\": \"workshop-obo-vault\","
-echo "      \"credentialProviderVendor\": \"CustomOauth2\","
-echo "      \"oauth2ProviderConfigInput\": {"
-echo "        \"customOauth2ProviderConfig\": {"
-echo "          \"oauthDiscovery\": { \"discoveryUrl\": \"${FURL}/.well-known/openid-configuration\" },"
-echo "          \"clientId\": \"${CLIENT_ID}\","
-echo "          \"clientSecret\": \"${CLIENT_SECRET}\","
-echo "          \"clientAuthenticationMethod\": \"CLIENT_SECRET_BASIC\","
-echo "          \"onBehalfOfTokenExchangeConfig\": { \"grantType\": \"JWT_AUTHORIZATION_GRANT\" }"
-echo "        }"
-echo "      }"
-echo "    }'"
-echo ""
-echo "  NOTE: If Function URL returns 403 (org SCP), run deploy-dev.sh for an"
-echo "  API Gateway alternative."
 echo "============================================================"
