@@ -32,7 +32,7 @@ mcp_clients = [get_streamable_http_mcp_client()]
 OBO_PROVIDER_NAME = os.getenv("OBO_PROVIDER_NAME", "workshop-obo-vault")
 
 # --- Vault configuration (Phase D) -------------------------------------------
-VAULT_ADDR = os.getenv("VAULT_ADDR", "http://13.220.93.3:8200")
+VAULT_ADDR = os.getenv("VAULT_ADDR", "http://<VAULT_IP>:8200")
 VAULT_JWT_ROLE = os.getenv("VAULT_JWT_ROLE", "alice-user")  # default for testing; production would resolve per-user
 VAULT_STS_ROLE = os.getenv("VAULT_STS_ROLE", "bedrock-reader")
 VAULT_STS_TTL = os.getenv("VAULT_STS_TTL", "15m")
@@ -45,10 +45,11 @@ _current_workload_access_token = None
 
 
 SYSTEM_PROMPT = """
-You are a read-only knowledge assistant. When asked a question, ALWAYS use the
-retrieve_from_kb_as_user tool — it authenticates to Vault on behalf of the
-current user and reads the Knowledge Base with per-user scoped credentials.
-Only fall back to retrieve_from_kb if retrieve_from_kb_as_user fails.
+You are a read-only knowledge assistant. When asked a question, use the
+retrieve_from_kb_as_user tool if available — it authenticates to Vault on
+behalf of the current user and reads the Knowledge Base with per-user scoped
+credentials. If retrieve_from_kb_as_user is not available or not listed in
+your tools, use retrieve_from_kb instead.
 
 If the user asks who they are or about their identity, use the
 get_user_identity tool to retrieve the authenticated user's identity from
@@ -242,7 +243,17 @@ def retrieve_from_kb_as_user(query: str) -> list:
 
 
 # --- Agent setup -------------------------------------------------------------
-tools = [retrieve_from_kb, get_user_identity, retrieve_from_kb_as_user]
+# When OBO is configured (UC2), only expose retrieve_from_kb_as_user so that
+# denied users (e.g. Bob) cannot fall back to the unscoped retrieve_from_kb.
+# When OBO is NOT configured (UC1 / Stage 1), only expose retrieve_from_kb.
+# Signal: VAULT_ADDR is set (either via env var or hardcoded to a real IP).
+_vault_addr = os.getenv("VAULT_ADDR", VAULT_ADDR)
+_obo_configured = _vault_addr and "placeholder" not in _vault_addr.lower() and "<" not in _vault_addr
+
+if _obo_configured:
+    tools = [get_user_identity, retrieve_from_kb_as_user]
+else:
+    tools = [retrieve_from_kb]
 
 for mcp_client in mcp_clients:
     if mcp_client:

@@ -450,7 +450,7 @@ python3 << 'PYEOF'
 import json, subprocess
 result = subprocess.run(["aws", "lambda", "get-function-configuration", "--function-name", "oauth-mock-server", "--profile", "agenticvault", "--region", "us-east-1", "--query", "Environment", "--output", "json"], capture_output=True, text=True)
 env = json.loads(result.stdout)
-env["Variables"]["CLIENT_SECRET"] = "workshop-obo-secret"
+env["Variables"]["CLIENT_SECRET"] = "workshop-obo-secret-1"
 env["Variables"]["TOKEN_ENDPOINT"] = "<FUNCTION_URL>/token"
 with open("/tmp/env-fix.json", "w") as f:
     json.dump(env, f)
@@ -462,7 +462,7 @@ PYEOF
 Verify:
 ```bash
 curl -s -X POST <FUNCTION_URL>/token \
-  -u 'workshop-obo-client:workshop-obo-secret' \
+  -u 'workshop-obo-client:workshop-obo-secret-1' \
   -d 'grant_type=client_credentials' | python3 -m json.tool
 # Expect: {"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "kb:read"}
 ```
@@ -485,7 +485,7 @@ aws bedrock-agentcore-control create-oauth2-credential-provider \
         }
       },
       "clientId": "workshop-obo-client",
-      "clientSecret": "workshop-obo-secret",
+      "clientSecret": "workshop-obo-secret-1",
       "clientAuthenticationMethod": "CLIENT_SECRET_BASIC",
       "onBehalfOfTokenExchangeConfig": { "grantType": "JWT_AUTHORIZATION_GRANT" }
     }

@@ -16,7 +16,9 @@ VAULT_STANDIN="$HERE/../vault-standin"
 
 # Client credentials for the OAuth token endpoint (AgentCore presents these)
 CLIENT_ID="workshop-obo-client"
-CLIENT_SECRET=[REDACTED_PASSWORD]
+# CLIENT_SECRET must be set in the environment before running this script.
+# The workshop sets this in the foundation page (Step 3).
+CLIENT_SECRET="${CLIENT_SECRET:?CLIENT_SECRET not set. Export it before running deploy.sh}"
 
 echo "[oauth-mock] account: $ACCOUNT"
 

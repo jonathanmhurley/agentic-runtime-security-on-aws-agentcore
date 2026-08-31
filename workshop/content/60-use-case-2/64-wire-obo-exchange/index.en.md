@@ -139,10 +139,11 @@ async def invoke(payload, context):
 
 ## Deploy
 
-Re-grant the execution role permissions (CDK redeploys can strip manually-added
-policies), then deploy:
+Deploy first, then re-grant the execution role permissions:
 
 ```bash
+agentcore deploy --yes
+
 EXECUTION_ROLE_NAME=$(aws iam list-roles \
   --query "Roles[?starts_with(RoleName,'AgentCore-stage0hello') && contains(RoleName,'Application')].RoleName | [0]" \
   --output text)
@@ -160,5 +161,11 @@ aws iam put-role-policy --role-name "$EXECUTION_ROLE_NAME" --policy-name obo-ide
 aws iam put-role-policy --role-name "$EXECUTION_ROLE_NAME" --policy-name obo-secrets \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"${SECRET_ARN}\"}]}"
 
-agentcore deploy --yes
+echo "Policies re-applied to $EXECUTION_ROLE_NAME"
 ```
+
+> ⚠️ **Why re-apply after deploy?** `agentcore deploy` uses CDK under the hood,
+> which replaces the execution role's inline policies with its own managed defaults.
+> Any manually-added policies (`kb-read`, `obo-identity`, `obo-secrets`) are stripped
+> during the deploy. That's why we re-apply them **after** every `agentcore deploy`,
+> not before.

@@ -30,6 +30,15 @@ if ! aws s3api head-bucket --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} 2
   echo "[stage1-kb] creating bucket $BUCKET"
   aws s3api create-bucket --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 fi
+
+# Wait for the bucket to be reachable (S3 eventual consistency on new buckets)
+echo "[stage1-kb] waiting for bucket to be reachable..."
+for i in $(seq 1 12); do
+  aws s3api head-bucket --bucket "$BUCKET" ${PROFILE:+--profile "$PROFILE"} 2>/dev/null && break
+  echo "  [$i] bucket not ready yet, retrying in 5s..."
+  sleep 5
+done
+
 echo "[stage1-kb] syncing corpus/"
 aws s3 sync "$HERE/corpus" "s3://$BUCKET/corpus/" ${PROFILE:+--profile "$PROFILE"} --region "$REGION"
 

@@ -53,6 +53,12 @@ cd ../vault-standin
 bash tools/keygen.sh
 
 cd ../oauth-mock-server
+
+# Set the client secret for the mock OAuth server.
+# This is used by AgentCore Identity when calling the /token endpoint.
+# You can choose any value — just use the same one when registering the credential provider.
+export CLIENT_SECRET="workshop-obo-secret-1"
+
 bash deploy.sh
 ```
 

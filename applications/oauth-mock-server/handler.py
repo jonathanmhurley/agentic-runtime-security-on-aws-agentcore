@@ -40,7 +40,7 @@ AGENT_SUB = os.environ.get("AGENT_SUB", "uc1-agent")
 
 # Client credentials — AgentCore presents these when calling /token
 CLIENT_ID = os.environ.get("CLIENT_ID", "workshop-obo-client")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "workshop-obo-secret")
+CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "workshop-obo-secret-1")
 
 # Load private key at cold start
 _private_key = None

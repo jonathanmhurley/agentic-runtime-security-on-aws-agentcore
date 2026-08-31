@@ -15,6 +15,8 @@ token from that endpoint.
 > **Variables required:** `$MOCK_SERVER_URL` must be set from the
 > [Deploy the foundation](../../30-deploy-foundation/) or
 > [Deploy the mock server](../61-deploy-mock-server/) steps.
+> `$CLIENT_SECRET` must also be set — this is the same value you chose in Step 3 of the foundation.
+> [Deploy the mock server](../61-deploy-mock-server/) steps.
 
 ```bash
 aws bedrock-agentcore-control create-oauth2-credential-provider \
@@ -32,7 +34,7 @@ aws bedrock-agentcore-control create-oauth2-credential-provider \
         }
       },
       \"clientId\": \"workshop-obo-client\",
-      \"clientSecret\": \"workshop-obo-secret-1\",
+      \"clientSecret\": \"${CLIENT_SECRET}\",
       \"clientAuthenticationMethod\": \"CLIENT_SECRET_BASIC\",
       \"onBehalfOfTokenExchangeConfig\": { \"grantType\": \"JWT_AUTHORIZATION_GRANT\" }
     }
@@ -49,6 +51,8 @@ Key decisions:
   token as a JWT assertion; the token server returns a new token scoped to the user.
 - **`CLIENT_SECRET_BASIC`**: client ID and secret go in the Authorization header as
   HTTP Basic Auth, not in the POST body.
+- **`clientSecret`**: can be any string you choose — it just needs to match what the
+  mock server expects (the value you set in `$CLIENT_SECRET` during foundation deploy).
 
 Note the `clientSecretArn` in the response — you need this ARN for the IAM policy below.
 

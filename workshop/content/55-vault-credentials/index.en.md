@@ -26,6 +26,13 @@ dynamic secrets engine instead of an IAM execution role.
 4. **Access the protected resource** — use those credentials to call `bedrock:Retrieve`
    on the Knowledge Base.
 
+## How this differs from Use Case 1 (Gateway path)
+
+<!-- TODO: Expand this section. Explain that UC1 Gateway and this Vault path are
+     parallel approaches to the same protected resource — Gateway is cloud-native
+     perimeter enforcement, Vault is enterprise secrets management with dynamic
+     credentials. Same JWT, same JWKS, different enforcement point. -->
+
 ## Control objectives demonstrated
 
 - **OBJ-1** — verifiable agent identity (JWT `sub` validated against `bound_subject`)
@@ -42,25 +49,33 @@ These should already be completed from the [Deploy the foundation](../30-deploy-
 - AWS secrets engine with `bedrock-reader` role configured
 - `$ISSUER` and `$JWKS_URL` variables set from Step 3 of the foundation
 
-## Step 1 — Mint a JWT
+## Step 1 — Mint a JWT and authenticate to Vault
 
 ```bash
 cd ~/agentic-runtime-security-on-aws-agentcore/applications/vault-standin
 
+# Mint a fresh JWT (tokens expire after 15 minutes):
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
   --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
-```
 
-> **Note:** the JWT expires after 15 minutes. If you see "token is expired" in later
-> steps, re-mint with the command above.
-
-## Step 2 — Authenticate to Vault
-
-```bash
+# Login to Vault — returns a scoped token with the uc1 policy:
 vault write auth/jwt/login role=uc1-agent jwt="$JWT"
 ```
 
 Expected: Vault returns a token with `token_policies: ["default", "uc1"]`.
+
+## Step 2 — Negative test: unregistered agent denied
+
+```bash
+# Negative test — unregistered agent is denied:
+BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
+  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
+vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
+# Expected: "invalid subject (sub) claim"
+```
+
+Expected: `error validating token: invalid subject (sub) claim` — the `bound_subject`
+enforcement rejects agents not on the allowlist.
 
 ## Step 3 — Vend scoped credentials and query the KB
 
@@ -73,7 +88,7 @@ KB_ID=$(aws bedrock-agent list-knowledge-bases --region us-east-1 \
   --query "knowledgeBaseSummaries[?contains(name,'meridian')].knowledgeBaseId | [0]" --output text)
 
 # Login to Vault and vend STS creds:
-# (mint a fresh JWT — the Step 2 login consumed the earlier one)
+# (mint a fresh JWT — the Step 1 login consumed the earlier one)
 JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
   --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 
@@ -103,17 +118,6 @@ export VAULT_TOKEN="workshop-root-token"
 ```
 
 Expected: the Meridian SLA answer (6 hours if booked before 11 AM).
-
-## Negative test — unregistered agent denied
-
-```bash
-BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
-  --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
-vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
-```
-
-Expected: `error validating token: invalid subject (sub) claim` — the `bound_subject`
-enforcement rejects agents not on the allowlist.
 
 ## Design note: JWT auth method vs. OAuth Resource Server
 

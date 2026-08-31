@@ -18,7 +18,8 @@ API_NAME=oauth-mock-api
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CLIENT_ID="workshop-obo-client"
-CLIENT_SECRET=[REDACTED_PASSWORD]
+# CLIENT_SECRET must be set in the environment before running this script.
+CLIENT_SECRET="${CLIENT_SECRET:?CLIENT_SECRET not set}"
 
 # 1. Run the base deploy (creates Lambda + Function URL)
 bash "$HERE/deploy.sh"

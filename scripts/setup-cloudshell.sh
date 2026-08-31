@@ -68,4 +68,12 @@ echo "=== Setup complete ==="
 echo "  Account: $ACCOUNT_ID"
 echo "  Region:  $REGION"
 echo ""
-echo "  Next: cd applications/stage0hello && agentcore deploy"
+# If this script was executed (not sourced), the PATH export died with the
+# subshell. Tell the user to activate it in their current shell.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "  IMPORTANT: Run this in your current shell to activate the tools:"
+  echo ""
+  echo "    source ~/.bashrc"
+  echo ""
+fi
+echo "  Then: cd applications/stage0hello && agentcore deploy"
