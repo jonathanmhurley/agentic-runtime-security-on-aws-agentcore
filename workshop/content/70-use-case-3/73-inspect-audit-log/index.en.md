@@ -5,22 +5,44 @@ weight: 73
 
 ## Read the audit entries
 
-SSH to the Vault instance and inspect the most recent entries:
+Use AWS Systems Manager (SSM) to read the audit log from the Vault instance
+remotely — no SSH key needed:
 
 ```bash
-ssh -i ~/.ssh/vault-workshop.pem ec2-user@<VAULT_IP> \
-  "sudo tail -8 /var/log/vault-audit.log" | python3 -c "
+INSTANCE_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=vault-enterprise-dev" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text --region us-east-1)
+
+COMMAND_ID=$(aws ssm send-command \
+  --instance-ids "$INSTANCE_ID" \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["tail -8 /var/log/vault-audit.log"]' \
+  --region us-east-1 \
+  --query 'Command.CommandId' --output text)
+
+# Wait for the command to complete
+sleep 5
+
+aws ssm get-command-invocation \
+  --command-id "$COMMAND_ID" \
+  --instance-id "$INSTANCE_ID" \
+  --region us-east-1 \
+  --query 'StandardOutputContent' --output text | python3 -c "
 import sys, json
 for line in sys.stdin:
-    entry = json.loads(line.strip())
+    line = line.strip()
+    if not line:
+        continue
+    entry = json.loads(line)
     req = entry.get('request', {})
     auth = entry.get('auth', {})
-    resp = entry.get('response', {})
     error = entry.get('error', '')
-    print(f\"Type: {entry['type']:8s}  Path: {req.get('path',''):30s}  \
-User: {auth.get('display_name','N/A'):30s}  Policies: {auth.get('policies',[])}  \
-Error: {error or 'none'}\")"
+    print(f'Type: {entry[\"type\"]:8s}  Path: {req.get(\"path\",\"\"):30s}  User: {auth.get(\"display_name\",\"N/A\"):30s}  Policies: {auth.get(\"policies\",[])}  Error: {error or \"none\"}')"
 ```
+
+> **Note:** SSM works because the Vault instance was launched with an instance
+> profile that includes `AmazonSSMManagedInstanceCore`. Amazon Linux 2023 ships
+> with the SSM agent pre-installed.
 
 ## Expected output
 

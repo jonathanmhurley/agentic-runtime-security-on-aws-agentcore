@@ -75,6 +75,27 @@ AMI_ID="$(aws ec2 describe-images ${PROFILE:+--profile "$PROFILE"} --region "$RE
   --query "Images | sort_by(@, &CreationDate) | [-1].ImageId" --output text)"
 echo "[vault-dev] AMI: $AMI_ID"
 
+# 2b. Instance profile — enables SSM (for remote audit log reading) and CloudWatch Logs
+ROLE_NAME="VaultDevInstanceRole"
+PROFILE_NAME="VaultDevInstanceProfile"
+if ! aws iam get-role --role-name "$ROLE_NAME" ${PROFILE:+--profile "$PROFILE"} >/dev/null 2>&1; then
+  echo "[vault-dev] creating instance role $ROLE_NAME"
+  aws iam create-role --role-name "$ROLE_NAME" ${PROFILE:+--profile "$PROFILE"} \
+    --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+  aws iam attach-role-policy --role-name "$ROLE_NAME" ${PROFILE:+--profile "$PROFILE"} \
+    --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  aws iam attach-role-policy --role-name "$ROLE_NAME" ${PROFILE:+--profile "$PROFILE"} \
+    --policy-arn arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+fi
+if ! aws iam get-instance-profile --instance-profile-name "$PROFILE_NAME" ${PROFILE:+--profile "$PROFILE"} >/dev/null 2>&1; then
+  echo "[vault-dev] creating instance profile $PROFILE_NAME"
+  aws iam create-instance-profile --instance-profile-name "$PROFILE_NAME" ${PROFILE:+--profile "$PROFILE"}
+  aws iam add-role-to-instance-profile --instance-profile-name "$PROFILE_NAME" --role-name "$ROLE_NAME" ${PROFILE:+--profile "$PROFILE"}
+  echo "[vault-dev] waiting 10s for instance profile propagation..."
+  sleep 10
+fi
+echo "[vault-dev] instance profile: $PROFILE_NAME"
+
 # 3. User-data script — installs Vault Enterprise + starts in dev mode with license
 USER_DATA=$(cat <<'USERDATA'
 #!/bin/bash
@@ -121,6 +142,7 @@ LAUNCH_ARGS=(
   --user-data "$USER_DATA"
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME},{Key=auto-delete,Value=no}]"
   --metadata-options "HttpTokens=required"
+  --iam-instance-profile "Name=$PROFILE_NAME"
 )
 if [ -n "$KEY_NAME" ]; then
   LAUNCH_ARGS+=(--key-name "$KEY_NAME")

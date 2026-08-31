@@ -29,7 +29,7 @@ VAULT_TOKEN=$ALICE_TOKEN vault write aws/sts/bedrock-reader ttl=15m
 You should see STS credentials returned, including an ARN like:
 
 ```text
-arn:aws:sts::036325003285:assumed-role/Stage2VendedKBReadRole/vault-jwt-alice@example.com-bedrock-reader-<timestamp>
+arn:aws:sts::<ACCOUNT_ID>:assumed-role/Stage2VendedKBReadRole/vault-jwt-alice@example.com-bedrock-reader-<timestamp>
 ```
 
 Note the session name: Vault stamps the user identity directly into it.

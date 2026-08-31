@@ -3,27 +3,12 @@ title: 'Enable Vault file audit'
 weight: 71
 ---
 
-## Check current audit devices
-
-Vault dev-mode may ship with an audit device writing to stdout (useful for
-debugging, useless for inspection). Check what's configured:
-
-```bash
-export VAULT_ADDR=http://<VAULT_IP>:8200
-export VAULT_TOKEN=workshop-root-token
-
-vault audit list -detailed
-```
-
-If the output shows `file_path=stdout`, the entries are vanishing into the process
-log. Switch to a file.
-
 ## Enable file-based audit
 
-Disable the existing stdout device (if present) and enable a file device:
+Enable Vault's file audit device to log every authenticated request and response
+as a JSON line:
 
 ```bash
-vault audit disable file
 vault audit enable file file_path=/var/log/vault-audit.log
 ```
 

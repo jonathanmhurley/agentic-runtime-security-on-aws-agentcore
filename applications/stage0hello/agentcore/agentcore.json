@@ -32,7 +32,7 @@
       "authorizerType": "CUSTOM_JWT",
       "authorizerConfiguration": {
         "customJwtAuthorizer": {
-          "discoveryUrl": "https://raw.githubusercontent.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore/main/applications/vault-standin/.well-known/openid-configuration",
+          "discoveryUrl": "REPLACE_WITH_OIDC_DISCOVERY_URL",
           "allowedAudience": [
             "vault-standin"
           ],
