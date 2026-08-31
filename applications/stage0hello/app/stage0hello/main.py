@@ -255,9 +255,12 @@ if _obo_configured:
 else:
     tools = [retrieve_from_kb]
 
-for mcp_client in mcp_clients:
-    if mcp_client:
-        tools.append(mcp_client)
+# Only add MCP/Gateway tools when OBO is NOT configured (UC1 path).
+# In UC2, the agent should only have the Vault-scoped tools.
+if not _obo_configured:
+    for mcp_client in mcp_clients:
+        if mcp_client:
+            tools.append(mcp_client)
 
 _agent = None
 

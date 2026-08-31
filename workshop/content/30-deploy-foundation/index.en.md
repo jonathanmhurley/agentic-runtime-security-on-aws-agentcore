@@ -87,6 +87,7 @@ agentcore add gateway \
   --authorizer-type CUSTOM_JWT \
   --discovery-url "$OIDC_DISCOVERY_URL" \
   --allowed-audience vault-standin \
+  --allowed-clients workshop-client \
   --runtimes stage0hello
 agentcore deploy --yes
 
@@ -96,6 +97,28 @@ bash deploy.sh
 
 The Gateway validates inbound JWTs via your mock server's OIDC discovery + JWKS, and
 the KB target Lambda wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
+
+### Set `allowedClients` on the Gateway
+
+The Gateway requires a `client_id` claim in the JWT matching an `allowedClients`
+entry. Without this, all JWT-bearer calls return `insufficient_scope`. The CDK
+deploy does not set `allowedClients`, so we update the Gateway directly:
+
+```bash
+GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways --region us-east-1 \
+  --query "items[?contains(name,'workshop-gateway')].gatewayId | [0]" --output text)
+GATEWAY_NAME=$(aws bedrock-agentcore-control get-gateway --gateway-id "$GATEWAY_ID" --region us-east-1 --query 'name' --output text)
+GATEWAY_ROLE=$(aws bedrock-agentcore-control get-gateway --gateway-id "$GATEWAY_ID" --region us-east-1 --query 'roleArn' --output text)
+
+aws bedrock-agentcore-control update-gateway \
+  --gateway-id "$GATEWAY_ID" --name "$GATEWAY_NAME" --role-arn "$GATEWAY_ROLE" \
+  --region us-east-1 --authorizer-type CUSTOM_JWT \
+  --authorizer-configuration "{\"customJWTAuthorizer\":{\"discoveryUrl\":\"${OIDC_DISCOVERY_URL}\",\"allowedAudience\":[\"vault-standin\"],\"allowedClients\":[\"workshop-client\"]}}"
+
+# Wait for READY (takes ~10s)
+sleep 10
+aws bedrock-agentcore-control get-gateway --gateway-id "$GATEWAY_ID" --region us-east-1 --query 'status'
+```
 
 ## Step 5 — Deploy Vault Enterprise
 
@@ -118,7 +141,7 @@ export VAULT_ADDR="http://${VAULT_IP}:8200"
 export VAULT_TOKEN="workshop-root-token"
 
 # If vault command is not found, re-run the setup script:
-#   bash scripts/setup-cloudshell.sh
+#   source scripts/setup-cloudshell.sh
 
 vault status    # expect: Sealed=false, Version=2.0.4+ent
 
@@ -159,13 +182,21 @@ aws iam create-access-key --user-name vault-aws-engine --output json > /tmp/vaul
 VAULT_AWS_KEY=$(python3 -c "import json; d=json.load(open('/tmp/vault-keys.json')); print(d['AccessKey']['AccessKeyId'])")
 VAULT_AWS_SECRET=$(python3 -c "import json; d=json.load(open('/tmp/vault-keys.json')); print(d['AccessKey']['SecretAccessKey'])")
 
+# Wait for IAM user to propagate before creating a role that trusts it.
+# IAM trust policies reject non-existent principals.
+echo "Waiting 10s for IAM user propagation..."
+sleep 10
+
 # Create the scoped KB-read role that Vault will assume
 aws iam create-role --role-name Stage2VendedKBReadRole \
-  --assume-role-policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::${ACCOUNT}:user/vault-aws-engine\"},\"Action\":\"sts:AssumeRole\"}]}" 2>/dev/null || true
+  --assume-role-policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::${ACCOUNT}:user/vault-aws-engine\"},\"Action\":\"sts:AssumeRole\"}]}"
+# ^ If you see "MalformedPolicyDocument", the IAM user hasn't propagated.
+#   Wait a moment and re-run the create-role command above.
+
 aws iam put-role-policy --role-name Stage2VendedKBReadRole --policy-name kb-read \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"bedrock:Retrieve\",\"Resource\":\"arn:aws:bedrock:us-east-1:${ACCOUNT}:knowledge-base/${KB_ID}\"}]}"
 
-echo "Waiting 10s for IAM propagation..."
+echo "Waiting 10s for role propagation..."
 sleep 10
 
 # Enable Vault AWS secrets engine

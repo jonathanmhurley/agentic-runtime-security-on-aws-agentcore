@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # setup-cloudshell.sh — one-time CloudShell setup for the workshop.
-# Run from the repo root: bash scripts/setup-cloudshell.sh
+# Run from the repo root: source scripts/setup-cloudshell.sh
 #
-# Installs: AgentCore CLI, uv, aws-targets.json for the stage0hello agent.
+# IMPORTANT: Use `source` (not `bash`) so PATH changes persist in your shell.
+#
+# Installs: AgentCore CLI, uv, PyJWT, Vault CLI, aws-targets.json.
 # Idempotent — safe to re-run after a CloudShell timeout.
-set -euo pipefail
 
 echo "=== Workshop CloudShell Setup ==="
 
 # 1. AgentCore CLI (npm global to /tmp — CloudShell home is ~1GB)
-echo "[1/4] Installing AgentCore CLI..."
+echo "[1/5] Installing AgentCore CLI..."
 rm -rf ~/.npm/_cacache 2>/dev/null || true
 export NPM_CONFIG_PREFIX=/tmp/npm-global
-export PATH="/tmp/npm-global/bin:$PATH"
+export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"
 npm install -g @aws/agentcore --silent 2>/dev/null
 echo "  agentcore $(agentcore --version)"
 
 # 2. uv (Python package manager — used by agentcore deploy)
-echo "[2/4] Installing uv..."
+echo "[2/5] Installing uv..."
 if ! command -v uv &>/dev/null; then
   curl -LsSf https://astral.sh/uv/install.sh | sh 2>/dev/null
 fi
-export PATH="$HOME/.local/bin:$PATH"
 echo "  $(uv --version)"
 
 # 2b. PyJWT (used by mint-jwt.py for signing workshop tokens)
@@ -32,7 +32,7 @@ echo "  pyjwt $(python3 -c 'import jwt; print(jwt.__version__)' 2>/dev/null || e
 echo "[3/5] Installing Vault CLI..."
 if ! command -v vault &>/dev/null; then
   curl -fsSL https://releases.hashicorp.com/vault/1.18.4/vault_1.18.4_linux_amd64.zip -o /tmp/vault.zip 2>/dev/null
-  cd /tmp && unzip -oq vault.zip 2>/dev/null && mkdir -p /tmp/npm-global/bin && mv vault /tmp/npm-global/bin/ 2>/dev/null && cd - >/dev/null || true
+  (cd /tmp && unzip -oq vault.zip 2>/dev/null && mkdir -p /tmp/npm-global/bin && mv vault /tmp/npm-global/bin/ 2>/dev/null) || true
 fi
 if command -v vault &>/dev/null; then
   echo "  $(vault --version 2>/dev/null || echo 'installed but may not run — use curl for Vault API calls')"
@@ -40,11 +40,9 @@ else
   echo "  skipped (disk full) — use curl for Vault API calls"
 fi
 
-# 4. PATH persistence for this session
+# 4. PATH persistence
 echo "[4/5] Updating PATH..."
-export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"
-
-# Persist PATH in ~/.bashrc so new CloudShell tabs pick it up automatically
+# Persist in ~/.bashrc so new CloudShell tabs pick it up automatically
 if ! grep -q '/tmp/npm-global/bin' ~/.bashrc 2>/dev/null; then
   echo 'export PATH="/tmp/npm-global/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
   echo "  Added PATH to ~/.bashrc"
@@ -68,12 +66,4 @@ echo "=== Setup complete ==="
 echo "  Account: $ACCOUNT_ID"
 echo "  Region:  $REGION"
 echo ""
-# If this script was executed (not sourced), the PATH export died with the
-# subshell. Tell the user to activate it in their current shell.
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo "  IMPORTANT: Run this in your current shell to activate the tools:"
-  echo ""
-  echo "    source ~/.bashrc"
-  echo ""
-fi
-echo "  Then: cd applications/stage0hello && agentcore deploy"
+echo "  Next: cd applications/stage0hello && agentcore deploy"

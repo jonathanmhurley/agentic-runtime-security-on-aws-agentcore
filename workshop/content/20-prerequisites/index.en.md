@@ -43,13 +43,13 @@ and creates the deployment target config for your account:
 ```bash
 git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
 cd agentic-runtime-security-on-aws-agentcore
-bash scripts/setup-cloudshell.sh
+source scripts/setup-cloudshell.sh
 ```
 
-The setup script adds PATH to `~/.bashrc` so new CloudShell tabs pick it up automatically.
+Using `source` (instead of `bash`) ensures the PATH changes take effect in your current shell immediately. The script also persists PATH in `~/.bashrc` so new CloudShell tabs pick it up automatically.
 
 > **CloudShell timeout note:** `/tmp` is ephemeral. If your CloudShell session
-> times out (~20 min idle), re-run `bash scripts/setup-cloudshell.sh` to
+> times out (~20 min idle), re-run `source scripts/setup-cloudshell.sh` to
 > reinstall the tools. Your repo clone and home directory files persist.
 
 <details>
