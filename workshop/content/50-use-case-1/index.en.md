@@ -1,6 +1,7 @@
 ---
-
-## title: 'Use Case 1 — Workload identity & scoped access' weight: 50
+title: 'Use Case 1 — Workload identity & scoped access'
+weight: 50
+---
 
 ## What you'll prove
 

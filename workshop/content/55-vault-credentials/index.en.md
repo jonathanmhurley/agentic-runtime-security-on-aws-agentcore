@@ -1,6 +1,7 @@
 ---
-
-## title: 'Vault — JWT authentication & dynamic credentials' weight: 55
+title: 'Vault — JWT authentication & dynamic credentials'
+weight: 55
+---
 
 ## What you'll prove
 

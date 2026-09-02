@@ -1,11 +1,13 @@
 ---
-
-## title: 'Prerequisites' weight: 20
+title: 'Prerequisites'
+weight: 20
+---
 
 ## AWS account requirements
 
-- **Amazon Bedrock** enabled with model access for:- `amazon.nova-pro-v1:0` (Nova Pro via CRIS — agent reasoning)
-- `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings, us-east-1)
+- **Amazon Bedrock** enabled with model access for:
+  - `amazon.nova-pro-v1:0` (Nova Pro via CRIS — agent reasoning)
+  - `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings, us-east-1)
 - **Amazon Bedrock AgentCore** enabled (Runtime + Gateway)
 - **AWS Lambda**, **IAM**, **EC2**, **S3**, **STS** access
 
