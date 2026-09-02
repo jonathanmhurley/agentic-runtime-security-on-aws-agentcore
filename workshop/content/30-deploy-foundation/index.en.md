@@ -99,7 +99,7 @@ bash deploy.sh
 ```
 
 The Gateway validates inbound JWTs via your mock server's OIDC discovery + JWKS, and
-the KB target Lambda wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
+the KB target Lambda (deployed by `deploy.sh`) wraps `bedrock:Retrieve` with `GATEWAY_IAM_ROLE` outbound auth.
 
 ### Set `allowedClients` on the Gateway
 

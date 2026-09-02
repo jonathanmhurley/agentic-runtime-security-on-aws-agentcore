@@ -47,8 +47,7 @@ Using `source` (instead of `bash`) ensures the PATH changes take effect in your 
 > times out (~20 min idle), re-run `source scripts/setup-cloudshell.sh` to
 > reinstall the tools. Your repo clone and home directory files persist.
 
-<details>
-<summary><strong>What the setup script does</strong></summary>
+### What the setup script does
 
 1. Installs the AgentCore CLI to `/tmp/npm-global` (CloudShell home is ~1GB, too small for a global npm install)
 2. Installs `uv` (Python package manager used by `agentcore deploy`)
@@ -56,6 +55,5 @@ Using `source` (instead of `bash`) ensures the PATH changes take effect in your 
 4. Adds PATH to `~/.bashrc` so new terminal tabs pick it up
 5. Creates `agentcore/aws-targets.json` in `applications/stage0hello/` with your account ID and `us-east-1`
 
-</details>
 
 <!-- build trigger -->
