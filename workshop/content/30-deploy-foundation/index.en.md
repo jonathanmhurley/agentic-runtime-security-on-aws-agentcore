@@ -14,8 +14,7 @@ Five components that form the foundation for the workshop's security demonstrati
 5. **Vault Enterprise** — validates JWTs and vends dynamic credentials
 
 > **Before you start:** complete the [Prerequisites](../20-prerequisites/) section
-> (clone the repo, run the setup script). All commands below assume you are in the
-> repository root (`agentic-runtime-security-on-aws-agentcore/`).
+> (clone the repo, run the setup script).
 
 ## Step 1 — Deploy the agent on AgentCore Runtime
 
@@ -33,6 +32,8 @@ The agent deploys via CDK (CodeZip), runs on Nova Pro (`us.amazon.nova-pro-v1:0`
 has a workload identity (ARN visible in `agentcore status`).
 
 ## Step 2 — Stand up the managed Knowledge Base
+
+This is the protected resource the agent will query throughout the workshop. It contains fictional Meridian Freight Logistics documents — access to this data is what Gateway, Vault, and per-user policies are all protecting.
 
 ```bash
 cd ../stage1-kb
@@ -77,6 +78,8 @@ ISSUER="${MOCK_SERVER_URL}"
 curl -s "$OIDC_DISCOVERY_URL" | python3 -m json.tool
 curl -s "$JWKS_URL" | python3 -m json.tool
 ```
+
+Before deploying Gateway or Vault, the workshop needs its own JWT issuer. This step creates a self-contained keypair and mock OAuth server that fills that role — issuing signed tokens that Gateway validates at the perimeter and Vault validates for credential vending. In production, a corporate IdP (Okta, Entra ID, IBM Verify) would replace this mock server.
 
 ## Step 4 — Deploy the Gateway + KB target
 
@@ -141,7 +144,7 @@ export VAULT_ADDR="http://${VAULT_IP}:8200"
 export VAULT_TOKEN="workshop-root-token"
 
 # If vault command is not found, re-run the setup script:
-#   source scripts/setup-cloudshell.sh
+#   source ~/agentic-runtime-security-on-aws-agentcore/scripts/setup-cloudshell.sh
 
 vault status    # expect: Sealed=false, Version=2.0.4+ent
 
@@ -199,13 +202,25 @@ aws iam put-role-policy --role-name Stage2VendedKBReadRole --policy-name kb-read
 echo "Waiting 10s for role propagation..."
 sleep 10
 
-# Enable Vault AWS secrets engine
+```
+
+### Enable Vault's dynamic credentials engine
+
+Vault's [AWS secrets engine](https://developer.hashicorp.com/vault/docs/secrets/aws) generates short-lived AWS credentials on demand. Instead of distributing long-lived access keys to applications, Vault calls `sts:AssumeRole` at the moment a credential is requested and returns temporary credentials that automatically expire. Every vended credential is lease-tracked — Vault knows who requested it, when, and can revoke it early if needed.
+
+This is the core of the "no standing privileges" guarantee: the agent never holds persistent access to the Knowledge Base. It gets a 15-minute credential from Vault, uses it, and the credential expires.
+
+```bash
+# Enable the AWS secrets engine
 vault secrets enable aws 2>/dev/null || true
 vault write aws/config/root \
   access_key="$VAULT_AWS_KEY" \
   secret_key="$VAULT_AWS_SECRET" \
   region=us-east-1
 
+# Create a role that vends scoped STS credentials for KB access
+# When an agent requests credentials via `vault write aws/sts/bedrock-reader`,
+# Vault assumes this IAM role and returns temporary credentials with a 15m TTL.
 vault write aws/roles/bedrock-reader \
   role_arns="arn:aws:iam::${ACCOUNT}:role/Stage2VendedKBReadRole" \
   credential_type=assumed_role \

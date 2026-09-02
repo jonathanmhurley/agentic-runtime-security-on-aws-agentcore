@@ -22,22 +22,17 @@ weight: 20
 
 ## Vault Enterprise license
 
-A **HashiCorp Vault Enterprise license** is required for the Agent Registry (beta)
-and the OAuth resource server features. For this workshop, the license is
-pre-provisioned — you do not need to obtain one separately.
+A **HashiCorp Vault Enterprise license** is required, but your event organizer will provide the license file — you do not need to obtain one separately.
 
 > No IVIA/IBM licensing is needed in this edition.
 
 ## Version pinning
 
-This workshop is validated against pinned versions. Do not float to `latest`.
-See the "Tested against" block in `docs/DESIGN.md` §7 for the exact versions.
+This workshop uses pinned dependency versions, so it is important not to float to `latest` — see `docs/DESIGN.md` §7 for the tested baseline.
 
 ## CloudShell setup
 
-[Open AWS CloudShell](https://console.aws.amazon.com/cloudshell/home?region=us-east-1) in your workshop account, then run:
-
-Clone the repo and run the setup script. It installs the AgentCore CLI, `uv`,
+To get started, make sure you're logged into your workshop account, then use this link to [open AWS CloudShell](https://console.aws.amazon.com/cloudshell/home?region=us-east-1). Clone the repo and run the setup script. It installs the AgentCore CLI, `uv`,
 and creates the deployment target config for your account:
 
 ```bash
@@ -53,7 +48,7 @@ Using `source` (instead of `bash`) ensures the PATH changes take effect in your 
 > reinstall the tools. Your repo clone and home directory files persist.
 
 <details>
-<summary>What the setup script does (expand for details)</summary>
+<summary><strong>What the setup script does</strong></summary>
 
 1. Installs the AgentCore CLI to `/tmp/npm-global` (CloudShell home is ~1GB, too small for a global npm install)
 2. Installs `uv` (Python package manager used by `agentcore deploy`)
@@ -63,5 +58,4 @@ Using `source` (instead of `bash`) ensures the PATH changes take effect in your 
 
 </details>
 
-All subsequent steps assume you are working from the repository root directory.
 <!-- build trigger -->
