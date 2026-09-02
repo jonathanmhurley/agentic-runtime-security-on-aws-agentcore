@@ -1,13 +1,11 @@
 ---
-title: 'Prerequisites'
-weight: 20
----
+
+## title: 'Prerequisites' weight: 20
 
 ## AWS account requirements
 
-- **Amazon Bedrock** enabled with model access for:
-  - `amazon.nova-pro-v1:0` (Nova Pro via CRIS — agent reasoning)
-  - `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings, us-east-1)
+- **Amazon Bedrock** enabled with model access for:- `amazon.nova-pro-v1:0` (Nova Pro via CRIS — agent reasoning)
+- `amazon.nova-2-multimodal-embeddings-v1:0` (managed KB embeddings, us-east-1)
 - **Amazon Bedrock AgentCore** enabled (Runtime + Gateway)
 - **AWS Lambda**, **IAM**, **EC2**, **S3**, **STS** access
 
@@ -32,20 +30,18 @@ This workshop uses pinned dependency versions, so it is important not to float t
 
 ## CloudShell setup
 
-To get started, make sure you're logged into your workshop account, then use this link to [open AWS CloudShell](https://console.aws.amazon.com/cloudshell/home?region=us-east-1). Clone the repo and run the setup script. It installs the AgentCore CLI, `uv`,
-and creates the deployment target config for your account:
+To get started, make sure you're logged into your workshop account, then use this link to [open AWS CloudShell](https://console.aws.amazon.com/cloudshell/home?region=us-east-1). Clone the repo and run the setup script. It installs the AgentCore CLI, `uv`, and creates the deployment target config for your account:
 
 ```bash
 git clone https://github.com/jonathanmhurley/agentic-runtime-security-on-aws-agentcore.git
 cd agentic-runtime-security-on-aws-agentcore
 source scripts/setup-cloudshell.sh
+
 ```
 
 Using `source` (instead of `bash`) ensures the PATH changes take effect in your current shell immediately. The script also persists PATH in `~/.bashrc` so new CloudShell tabs pick it up automatically.
 
-> **CloudShell timeout note:** `/tmp` is ephemeral. If your CloudShell session
-> times out (~20 min idle), re-run `source scripts/setup-cloudshell.sh` to
-> reinstall the tools. Your repo clone and home directory files persist.
+> **CloudShell timeout note:** `/tmp` is ephemeral. If your CloudShell session times out (~20 min idle), re-run `source scripts/setup-cloudshell.sh` to reinstall the tools. Your repo clone and home directory files persist.
 
 ### What the setup script does
 
@@ -55,5 +51,3 @@ Using `source` (instead of `bash`) ensures the PATH changes take effect in your 
 4. Adds PATH to `~/.bashrc` so new terminal tabs pick it up
 5. Creates `agentcore/aws-targets.json` in `applications/stage0hello/` with your account ID and `us-east-1`
 
-
-<!-- build trigger -->

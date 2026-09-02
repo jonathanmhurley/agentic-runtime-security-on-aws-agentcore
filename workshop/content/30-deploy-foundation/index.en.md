@@ -16,6 +16,13 @@ Five components that form the foundation for the workshop's security demonstrati
 > **Before you start:** complete the [Prerequisites](../20-prerequisites/) section
 > (clone the repo, run the setup script).
 
+> **A note on deploy scripts:** The interesting part of this workshop is what you
+> configure, not how the Lambda gets packaged. The deploy scripts automate the
+> repetitive infrastructure steps so that you can focus on the security-relevant
+> operations: minting JWTs, configuring Vault roles, testing per-user authorization.
+> Every script is plain, readable shell code, so please feel free to open any of
+> them to see exactly what's happening under the hood.
+
 ## Step 1 — Deploy the agent on AgentCore Runtime
 
 ```bash

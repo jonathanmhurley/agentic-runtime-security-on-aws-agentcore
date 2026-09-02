@@ -1,37 +1,21 @@
 ---
-title: 'Vault — JWT authentication & dynamic credentials'
-weight: 55
----
+
+## title: 'Vault — JWT authentication & dynamic credentials' weight: 55
 
 ## What you'll prove
 
-The full **HashiCorp Vault Agentic pattern**: present a JWT, Vault validates it
-(JWKS + subject binding), and vends short-lived scoped AWS credentials with no
-standing privileges and a clear audit trail.
+The full **HashiCorp Vault Agentic pattern**: present a JWT, Vault validates it (JWKS + subject binding), and vends scoped AWS credentials with a 15-minute TTL (using the [AWS secrets engine](https://developer.hashicorp.com/vault/docs/secrets/aws) enabled earlier) — no standing privileges and a clear audit trail.
 
-This builds on Use Case 1's agent identity: the same JWT that Gateway validated is
-now validated by **real Vault Enterprise**, and the credential comes from Vault's
-dynamic secrets engine instead of an IAM execution role.
+This builds on Use Case 1's agent identity: the same JWT that Gateway validated is now validated by **real Vault Enterprise**, and the credential comes from Vault's dynamic secrets engine instead of an IAM execution role.
 
 ## The trust path
 
-1. **Mint a JWT** — signed with the workshop's RS256 keypair, carrying `sub: uc1-agent`,
-   `aud: vault-standin`, and a unique `jti`.
-2. **Authenticate to Vault** — present the JWT to `auth/jwt/login`. Vault fetches the
-   public key from your mock server's JWKS, verifies the signature, checks `aud`,
-   confirms `sub` matches the role's `bound_subject`, and returns a short-lived Vault
-   token with the `uc1` policy.
-3. **Vend scoped credentials** — use the Vault token to call `aws/sts/bedrock-reader`.
-   Vault calls `sts:AssumeRole` into a scoped role and returns 15-minute STS credentials.
-4. **Access the protected resource** — use those credentials to call `bedrock:Retrieve`
-   on the Knowledge Base.
+1. **Mint a JWT** — signed with the workshop's RS256 keypair, carrying `sub: uc1-agent`, `aud: vault-standin`, and a unique `jti`.
+2. **Authenticate to Vault** — present the JWT to `auth/jwt/login`. Vault fetches the public key from your mock server's JWKS, verifies the signature, checks `aud`, confirms `sub` matches the role's `bound_subject`, and returns a short-lived Vault token with the `uc1` policy.
+3. **Vend scoped credentials** — use the Vault token to call `aws/sts/bedrock-reader`. Vault calls `sts:AssumeRole` into a scoped role and returns 15-minute STS credentials.
+4. **Access the protected resource** — use those credentials to call `bedrock:Retrieve` on the Knowledge Base.
 
 ## How this differs from Use Case 1 (Gateway path)
-
-<!-- TODO: Expand this section. Explain that UC1 Gateway and this Vault path are
-     parallel approaches to the same protected resource — Gateway is cloud-native
-     perimeter enforcement, Vault is enterprise secrets management with dynamic
-     credentials. Same JWT, same JWKS, different enforcement point. -->
 
 ## Control objectives demonstrated
 
@@ -60,6 +44,7 @@ JWT="$(python3 tools/mint-jwt.py --sub uc1-agent --aud vault-standin \
 
 # Login to Vault — returns a scoped token with the uc1 policy:
 vault write auth/jwt/login role=uc1-agent jwt="$JWT"
+
 ```
 
 Expected: Vault returns a token with `token_policies: ["default", "uc1"]`.
@@ -71,16 +56,14 @@ Expected: Vault returns a token with `token_policies: ["default", "uc1"]`.
 BADJWT="$(python3 tools/mint-jwt.py --sub not-registered --aud vault-standin \
   --iss "$ISSUER" --scopes kb:read --kid stage2-key-1 --ttl 900 --client-id workshop-client)"
 vault write auth/jwt/login role=uc1-agent jwt="$BADJWT"
-# Expected: "invalid subject (sub) claim"
+
 ```
 
-Expected: `error validating token: invalid subject (sub) claim` — the `bound_subject`
-enforcement rejects agents not on the allowlist.
+Expected: `error validating token: invalid subject (sub) claim` — the `bound_subject` enforcement rejects agents not on the allowlist.
 
 ## Step 3 — Vend scoped credentials and query the KB
 
-Look up the KB ID first (before Vault STS creds override your shell credentials),
-then login, vend, and retrieve in one flow:
+Look up the KB ID first (before Vault STS creds override your shell credentials), then login, vend, and retrieve in one flow:
 
 ```bash
 # Get KB ID while CloudShell default creds are still active:
@@ -115,21 +98,21 @@ aws bedrock-agent-runtime retrieve \
 # full permissions for the remaining workshop steps.
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 export VAULT_TOKEN="workshop-root-token"
+
 ```
 
 Expected: the Meridian SLA answer (6 hours if booked before 11 AM).
 
 ## Design note: JWT auth method vs. OAuth Resource Server
 
-This workshop uses Vault's GA **JWT auth method** (`auth/jwt/`) rather than the beta
-**OAuth Resource Server** (`sys/config/oauth-resource-server/`). Both validate the same
-JWT against the same JWKS; the difference is:
+This workshop uses Vault's GA **JWT auth method** (`auth/jwt/`) rather than the beta **OAuth Resource Server** (`sys/config/oauth-resource-server/`). Both validate the same JWT against the same JWKS; the difference is:
 
-| | JWT auth method (used here) | OAuth Resource Server (beta) |
-|---|---|---|
+|  | JWT auth method (used here) | OAuth Resource Server (beta) |
+| --- | --- | --- |
 | Maturity | GA, stable | Beta (2.0.3+) |
 | Login step | Explicit `auth/jwt/login` → Vault token | Direct `X-Vault-Token` passthrough (no login step) |
 | Entity alias | Auto-created on first login | Manual pre-creation (broken in 2.0.4) |
 | Allowlist | `bound_subject` on role | Agent Registry |
 | RAR support | No | Yes (`authorization_details` claim) |
 | Workshop fit | Excellent — authentication step is visible and teachable | Better for UC2/UC3 when RAR matters |
+
