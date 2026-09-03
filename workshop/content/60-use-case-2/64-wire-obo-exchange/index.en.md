@@ -17,10 +17,11 @@ Each step fails fast if the previous one returned an error.
 ## Configure Vault for per-user authorization
 
 Create per-user JWT roles and policies in Vault. Alice is allowed to vend KB
-credentials; Bob is denied:
+credentials; Bob is denied.
+
+First, create the Vault policies. `alice-kb` grants the `update` capability on the AWS secrets engine path (needed to generate STS credentials), while `bob-kb` explicitly denies it:
 
 ```bash
-# Create per-user policies
 vault policy write alice-kb - <<'EOF'
 path "aws/sts/bedrock-reader" {
   capabilities = ["update"]
@@ -32,8 +33,11 @@ path "aws/sts/bedrock-reader" {
   capabilities = ["deny"]
 }
 EOF
+```
 
-# Create per-user JWT roles (bound_subject must match the OBO token's sub claim)
+Next, create a JWT role for each user. The `bound_subject` field ties the role to a specific `sub` claim in the OBO token — if the token's `sub` doesn't match, Vault rejects the login:
+
+```bash
 vault write auth/jwt/role/alice-user \
   role_type=jwt \
   bound_audiences=vault-standin \
@@ -49,8 +53,11 @@ vault write auth/jwt/role/bob-user \
   user_claim=sub \
   token_policies=bob-kb \
   token_ttl=15m
+```
 
-# Verify
+Verify that both roles are bound to the correct subjects and policies:
+
+```bash
 vault read auth/jwt/role/alice-user -format=json | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f'alice-user: bound_subject={d[\"bound_subject\"]}, policies={d[\"token_policies\"]}')"
 vault read auth/jwt/role/bob-user -format=json | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(f'bob-user: bound_subject={d[\"bound_subject\"]}, policies={d[\"token_policies\"]}')"
 ```
@@ -72,8 +79,9 @@ aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --region us-east-1 
 echo "SG $SG_ID: port 8200 open to 0.0.0.0/0 (for AgentCore Runtime)"
 ```
 
-> **Production note:** In production, use a VPC endpoint or private connectivity
-> instead of `0.0.0.0/0`. For this workshop, the open rule is acceptable.
+> **⚠️ Note:** Exposing port 8200 to `0.0.0.0/0` is not something you would do in
+> production — use a VPC endpoint or private connectivity instead. This is acceptable
+> here because the workshop account is ephemeral and will be destroyed at the end of the session.
 
 ## Patch the agent code with your Vault IP
 
@@ -107,7 +115,7 @@ grep 'VAULT_ADDR =' app/stage0hello/main.py | head -1
 
 ## How the workload access token reaches the tool
 
-AgentCore Runtime injects the WAT as a request header. The entrypoint captures it
+AgentCore Runtime injects the workload access token as a request header. The entrypoint captures it
 into a module-level variable that the tool reads:
 
 ```python

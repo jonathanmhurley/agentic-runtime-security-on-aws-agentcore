@@ -57,11 +57,9 @@ Bob authenticated successfully at the Runtime level (his JWT was valid, the OBO
 exchange worked). But Vault rejected his token at login because the role is bound
 to a different subject. This is the allowlist in action.
 
-{{% notice tip %}}
-In a production system, the agent would resolve the Vault role dynamically from
-the user's `sub` claim. For the workshop, the hardcoded role demonstrates the
-bound_subject enforcement clearly.
-{{% /notice %}}
+> **💡 Tip:** In a production system, the agent would resolve the Vault role
+> dynamically from the user's `sub` claim. For the workshop, the hardcoded role
+> demonstrates the `bound_subject` enforcement clearly.
 
 ## What to observe
 
@@ -94,7 +92,6 @@ full attribution.
 
 ## The security property
 
-The agent code is identical for both users. It doesn't make access decisions. Vault
-does. The agent cannot bypass this because it never holds standing credentials for the
+The agent code is identical for both users — it doesn't make access decisions, Vault does.
 KB. Every request requires a fresh Vault exchange, and Vault checks the user's identity
 every time.

@@ -6,23 +6,24 @@ weight: 63
 ## Why JWT inbound auth?
 
 UC1 used SigV4 (IAM) authentication to invoke the agent. That proves the *caller*
-has IAM credentials but doesn't carry end-user identity. For UC2 we switch to
+has IAM credentials but doesn't carry end-user identity. For example, if Alice and
+Bob both invoke the same agent through an API Gateway with IAM auth, the agent sees
+the same IAM role for both requests — it has no way to distinguish Alice from Bob or
+scope its downstream actions per user. For UC2 we switch to
 **JWT bearer** so the calling user's identity (`sub` claim) rides the request all the
 way into the agent.
 
 AgentCore validates the JWT on the way in, rejects bad signatures or expired tokens,
 and makes the user's workload access token (WAT) available to the agent code.
 
-{{% notice warning %}}
-A runtime can support either IAM SigV4 or JWT inbound auth, but not both. After
-this step, `agentcore invoke "hello"` (SigV4) will return a 403. All invocations
-must include `--bearer-token`.
-{{% /notice %}}
+> **⚠️ Warning:** A runtime can support either IAM SigV4 or JWT inbound auth, but
+> not both. After this step, `agentcore invoke "hello"` (SigV4) will return a 403.
+> All invocations must include `--bearer-token`.
 
 ## Add the authorizer
 
 The authorizer must be in `agentcore.json` (CDK overwrites runtime config on every
-deploy, so CLI-only changes are lost). Run this to patch it automatically using your
+deploy, so CLI-only changes are lost). Run this to patch it using your
 `$MOCK_SERVER_URL`:
 
 ```bash

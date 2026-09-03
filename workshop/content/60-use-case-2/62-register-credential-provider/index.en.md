@@ -68,6 +68,7 @@ echo "Secret ARN: $SECRET_ARN"
 
 ```
 
+Now attach two inline policies — **obo-identity** grants the agent permission to call the AgentCore OBO token exchange APIs, and **obo-secrets** allows it to read the client secret that AgentCore stored in Secrets Manager when you registered the credential provider:
 
 ```bash
 aws iam put-role-policy \
