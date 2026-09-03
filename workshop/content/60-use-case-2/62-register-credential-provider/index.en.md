@@ -5,18 +5,14 @@ weight: 62
 
 ## What is a credential provider?
 
-AgentCore Identity manages OAuth2 integrations through **credential providers**. You
-register an external token endpoint once. Then any agent on the runtime can call
-`GetResourceOauth2Token` to exchange its workload access token for a user-scoped
-token from that endpoint.
+AgentCore Identity manages OAuth2 integrations through **credential providers**. You register an external token endpoint once, and then any agent on the runtime can call `GetResourceOauth2Token` to exchange its workload access token for a user-scoped token from that endpoint.
 
 ## Create the credential provider
 
-> **Variables required:** `$MOCK_SERVER_URL` must be set from the
-> [Deploy the foundation](../../30-deploy-foundation/) or
-> [Deploy the mock server](../61-deploy-mock-server/) steps.
-> `$CLIENT_SECRET` must also be set — this is the same value you chose in Step 3 of the foundation.
-> [Deploy the mock server](../61-deploy-mock-server/) steps.
+> **Variables required:**
+>
+> - `$MOCK_SERVER_URL` — set from the [Deploy the foundation](../../30-deploy-foundation/) or [Validate the mock server](../61-deploy-mock-server/) steps.
+> - `$CLIENT_SECRET` — the same value you chose in Step 3 of the foundation.
 
 ```bash
 aws bedrock-agentcore-control create-oauth2-credential-provider \
@@ -54,14 +50,11 @@ Key decisions:
 - **`clientSecret`**: can be any string you choose — it just needs to match what the
   mock server expects (the value you set in `$CLIENT_SECRET` during foundation deploy).
 
-Note the `clientSecretArn` in the response — you need this ARN for the IAM policy below.
-
 ## Grant the execution role permissions
 
-Discover the execution role name and secret ARN, then attach the required policies:
+The agent's execution role needs permission to call the OBO exchange and read the managed client secret. First, discover the role name and secret ARN:
 
 ```bash
-# Discover the execution role (created by CDK during agentcore deploy)
 EXECUTION_ROLE_NAME=$(aws iam list-roles \
   --query "Roles[?starts_with(RoleName,'AgentCore-stage0hello') && contains(RoleName,'Application')].RoleName | [0]" \
   --output text)
@@ -73,7 +66,10 @@ SECRET_ARN=$(aws bedrock-agentcore-control get-oauth2-credential-provider \
   --query 'clientSecretArn.secretArn' --output text)
 echo "Secret ARN: $SECRET_ARN"
 
-# OBO Identity permissions
+```
+
+
+```bash
 aws iam put-role-policy \
   --role-name "$EXECUTION_ROLE_NAME" \
   --policy-name obo-identity \

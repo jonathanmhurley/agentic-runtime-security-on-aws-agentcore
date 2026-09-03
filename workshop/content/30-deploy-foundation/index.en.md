@@ -86,7 +86,7 @@ curl -s "$OIDC_DISCOVERY_URL" | python3 -m json.tool
 curl -s "$JWKS_URL" | python3 -m json.tool
 ```
 
-Before deploying Gateway or Vault, the workshop needs its own JWT issuer. This step creates a self-contained keypair and mock OAuth server that fills that role — issuing signed tokens that Gateway validates at the perimeter and Vault validates for credential vending. In production, a corporate IdP (Okta, Entra ID, IBM Verify) would replace this mock server.
+Before deploying Gateway or Vault, the workshop needs its own JWT issuer. This step creates a self-contained keypair and mock OAuth server that fills that role — issuing signed tokens that Gateway validates at the perimeter and Vault validates for credential vending. In production, a corporate IdP (e.g. Amazon Cognito, Okta, Entra ID, IBM Verify) would replace this mock server.
 
 ## Step 4 — Deploy the Gateway + KB target
 

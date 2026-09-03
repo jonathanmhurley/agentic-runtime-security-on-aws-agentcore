@@ -3,8 +3,7 @@ title: 'Use Case 2 — Per-user authorization via OBO + Vault'
 weight: 60
 ---
 
-> **Before you start:** If you just completed UC1's Vault STS vend, clear the
-> Vault-vended credentials and reset your Vault token:
+> **Before you begin**, it's important to clear latent variables from earlier sections:
 > ```bash
 > unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 > export VAULT_TOKEN="workshop-root-token"
