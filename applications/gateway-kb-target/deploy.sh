@@ -82,8 +82,18 @@ fi
 # 4. Register as a Gateway target
 echo "[gateway-kb-target] waiting for IAM propagation..."
 sleep 10
-echo "[gateway-kb-target] adding target to gateway $GATEWAY_ID"
-aws bedrock-agentcore-control create-gateway-target \
+
+# Idempotency: skip creation if a target named "$TARGET_NAME" already exists on
+# the gateway (re-running the script otherwise fails with ConflictException).
+EXISTING_TARGET=$(aws bedrock-agentcore-control list-gateway-targets \
+  --gateway-identifier "$GATEWAY_ID" ${PROFILE:+--profile "$PROFILE"} --region "$REGION" \
+  --query "items[?name=='${TARGET_NAME}'].name | [0]" --output text 2>/dev/null || echo "")
+
+if [ -n "$EXISTING_TARGET" ] && [ "$EXISTING_TARGET" != "None" ]; then
+  echo "[gateway-kb-target] target '$TARGET_NAME' already exists on gateway $GATEWAY_ID — skipping creation"
+else
+  echo "[gateway-kb-target] adding target to gateway $GATEWAY_ID"
+  aws bedrock-agentcore-control create-gateway-target \
   --gateway-identifier "$GATEWAY_ID" \
   --name "$TARGET_NAME" \
   --description "Retrieve passages from the Meridian Knowledge Base" \
@@ -115,6 +125,7 @@ aws bedrock-agentcore-control create-gateway-target \
   }" \
   --credential-provider-configurations "[{\"credentialProviderType\": \"GATEWAY_IAM_ROLE\"}]" \
   2>&1 | tee /tmp/gw-target-output.json
+fi
 
 echo
 echo "============================================================"

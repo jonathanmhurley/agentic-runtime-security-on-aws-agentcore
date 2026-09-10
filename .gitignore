@@ -2,6 +2,11 @@
 .terraform/
 .terraform-build/
 
+# Re-nesting guard — never commit a clone of this repo inside itself.
+# A stray `git clone ...` into the repo root previously got committed as a
+# gitlink, bloating fresh clones and filling CloudShell disk (ENOSPC).
+/agentic-runtime-security-on-aws-agentcore/
+
 # GSD planning scaffolding — internal dev docs, excluded from the public samples repo
 .planning/
 
