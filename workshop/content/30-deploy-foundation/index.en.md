@@ -90,6 +90,10 @@ Before deploying Gateway or Vault, the workshop needs its own JWT issuer. This s
 
 ## Step 4 — Deploy the Gateway + KB target
 
+The base runtime deployed in Step 1 has no Gateway. Now that the mock server is up
+and `$OIDC_DISCOVERY_URL` is set, add the Gateway — `agentcore add gateway` writes the
+Gateway config into `agentcore.json` with your real discovery URL, then `deploy` provisions it:
+
 ```bash
 cd ../stage0hello
 agentcore add gateway \

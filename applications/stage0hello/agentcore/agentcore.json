@@ -23,28 +23,7 @@
   "credentials": [],
   "evaluators": [],
   "onlineEvalConfigs": [],
-  "agentCoreGateways": [
-    {
-      "name": "workshop-gateway",
-      "protocolType": "None",
-      "description": "Gateway for workshop-gateway",
-      "targets": [],
-      "authorizerType": "CUSTOM_JWT",
-      "authorizerConfiguration": {
-        "customJwtAuthorizer": {
-          "discoveryUrl": "REPLACE_WITH_OIDC_DISCOVERY_URL",
-          "allowedAudience": [
-            "vault-standin"
-          ],
-          "allowedClients": [
-            "workshop-client"
-          ]
-        }
-      },
-      "enableSemanticSearch": true,
-      "exceptionLevel": "NONE"
-    }
-  ],
+  "agentCoreGateways": [],
   "policyEngines": [],
   "configBundles": [],
   "abTests": [],
