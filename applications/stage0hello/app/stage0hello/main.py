@@ -60,6 +60,10 @@ the OBO token exchange.
 # The KB ID is a workshop resource identifier (not a secret). Falls back to the
 # known Stage 1 Meridian KB since this CLI version does not inject agentcore.json
 # environmentVariables onto the runtime.
+#
+# IMPORTANT: KB discovery is lazy (resolved on first tool call, cached), NOT at
+# module import. A blocking list_knowledge_bases() call at import time delays the
+# runtime's readiness handshake and causes "Runtime initialization time exceeded".
 def _discover_kb_id():
     """Auto-discover the Meridian KB ID, falling back to env var or hardcoded default."""
     kb_id = os.getenv("BEDROCK_KB_ID")
@@ -77,7 +81,16 @@ def _discover_kb_id():
         pass
     return "QLKOTZM2GC"  # fallback to dev account KB
 
-BEDROCK_KB_ID = _discover_kb_id()
+# Cached KB ID — resolved lazily on first retrieval, never at import.
+_bedrock_kb_id = None
+
+
+def get_kb_id():
+    """Return the Meridian KB ID, discovering and caching it on first call."""
+    global _bedrock_kb_id
+    if _bedrock_kb_id is None:
+        _bedrock_kb_id = _discover_kb_id()
+    return _bedrock_kb_id
 
 
 @tool
@@ -90,11 +103,12 @@ def retrieve_from_kb(query: str) -> list:
     Returns:
         A list of {text, score, location} passages.
     """
-    if not BEDROCK_KB_ID:
+    kb_id = get_kb_id()
+    if not kb_id:
         return [{"text": "BEDROCK_KB_ID is not set.", "score": None, "location": None}]
     client = boto3.client("bedrock-agent-runtime")
     resp = client.retrieve(
-        knowledgeBaseId=BEDROCK_KB_ID,
+        knowledgeBaseId=kb_id,
         retrievalQuery={"text": query},
     )
     return [
@@ -229,7 +243,7 @@ def retrieve_from_kb_as_user(query: str) -> list:
         region_name="us-east-1",
     )
     kb_resp = kb_client.retrieve(
-        knowledgeBaseId=BEDROCK_KB_ID,
+        knowledgeBaseId=get_kb_id(),
         retrievalQuery={"text": query},
     )
     return [
